@@ -33,14 +33,14 @@ use byteorder::{BigEndian, ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt
 // }
 
 
-pub struct Hello <'a> {
+pub struct Hello {
     //direction: Send,
     command_type: u8, // should be == 0
-    udp_port: &'a u16,
+    udp_port: u16,
 }
 
-impl <'a> Hello <'a> {
-    pub fn create(udp_port: &'a u16) -> Self {
+impl Hello {
+    pub fn create(udp_port:  u16) -> Self {
         Self {
             command_type: 0,
             udp_port,
@@ -111,14 +111,14 @@ impl Welcome {
 }
 
 
-pub struct Announce <'a> { 
+pub struct Announce  { 
     reply_type: u8,
     songname_size: u8,
-    songname: &'a[u8],
+    songname: [u8],
 }
 
-impl <'a> Announce <'a> {
-    pub fn create(songname_size: u8, songname: &'a[u8]) -> Self {
+impl  Announce  {
+    pub fn create(songname_size: u8, songname: [u8]) -> Self {
         Self {
             reply_type: 3,
             songname_size,
@@ -139,13 +139,13 @@ impl <'a> Announce <'a> {
 // }
 
 
-pub struct InvalidCommand <'a> {
+pub struct InvalidCommand  {
     reply_type: u8,
     reply_string_size: u8,
-    reply_string: &'a[u8],
+    reply_string: [u8],
 }
-impl <'a> InvalidCommand <'a> {
-    pub fn create(reply_string_size: u8, reply_string: &'a [u8]) -> Self {
+impl  InvalidCommand  {
+    pub fn create(reply_string_size: u8, reply_string:  [u8]) -> Self {
         Self {
             reply_type: 4,
             reply_string_size,
@@ -164,22 +164,22 @@ impl <'a> InvalidCommand <'a> {
 //     }
 // }
 
-pub enum Message <'a> {
-    SendMessage(Send <'a>),
-    ReplyMessage(Reply <'a>), 
+pub enum Message  {
+    SendMessage(Send ),
+    ReplyMessage(Reply ), 
 }
 
-pub enum Send <'a> {
-    SendHello(Hello <'a>),
-    SendSetStation(SetStation <'a>),
+pub enum Send  {
+    SendHello(Hello ),
+    SendSetStation(SetStation ),
 }
 
-pub enum Reply <'a> {
-    ReplyWelcome(Welcome <'a>),
-    ReplyAnnounce(Announce <'a>),
-    ReplyInvalidCommand(InvalidCommand <'a>),
+pub enum Reply  {
+    ReplyWelcome(Welcome ),
+    ReplyAnnounce(Announce ),
+    ReplyInvalidCommand(InvalidCommand ),
 }
-//stuff and things
+
 pub fn parse_to_enum <'a> (data: &[u8]) -> Result<Message>  {
     let mut second_u16: u16 = NetworkEndian::read_u16(&data[1..3]); //used for first
                                                                 //3 cases
