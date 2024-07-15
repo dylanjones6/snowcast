@@ -1,0 +1,19 @@
+[[bin]]
+name = "snowcast_control"
+path = "src/bin/snowcast_control.rs"
+
+[[bin]]
+name = "snowcast_listener"
+path = "src/bin/snowcast_listener.rs"
+
+[[bin]]
+name = "snowcast_server"
+path = "src/bin/snowcast_server.rs"
+
+[package]
+name = "snowcast"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+byteorder = "1.5.0"
