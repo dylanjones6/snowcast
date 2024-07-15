@@ -1,6 +1,8 @@
 use std::net::{TcpStream, Ipv4Addr};
-use std::io::{Read, Write, Result};
-//use byteorder::{BigEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use std::io::{Error, Read, Result, Write};
+
+use crate::structs;
+use byteorder::{BigEndian, ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 
 
 
@@ -142,7 +144,6 @@ pub struct InvalidCommand <'a> {
     reply_string_size: &'a u8,
     reply_string: &'a[u8],
 }
-
 impl <'a> InvalidCommand <'a> {
     pub fn create(reply_string_size: &'a u8, reply_string: &'a [u8]) -> Self {
         Self {
@@ -163,6 +164,11 @@ impl <'a> InvalidCommand <'a> {
 //     }
 // }
 
+pub enum Message <'a> {
+    SendMessage(Send <'a>),
+    ReplyMessage(Reply <'a>), 
+}
+
 pub enum Send <'a> {
     SendHello(Hello <'a>),
     SendSetStation(SetStation <'a>),
@@ -174,6 +180,88 @@ pub enum Reply <'a> {
     ReplyInvalidCommand(InvalidCommand <'a>),
 }
 
+pub fn parse_to_enum <'a> (data: &[u8]) -> Result<Message>  {
+    let mut second_u16: u16 = NetworkEndian::read_u16(&data[1..3]); //used for first
+                                                                //3 cases
+    match &data[0] {
+        0 => {
+            // Hello
+            Ok(
+                Message::SendMessage(
+                    Send::SendHello(
+                        Hello {
+                            command_type: 0,
+                            udp_port: second_u16 
+                        }
+                    )
+                )
+            )
+        }
+        1 => {
+            // SetStation
+            Ok(
+                Message::SendMessage(
+                    Send::SendSetStation(
+                        SetStation {
+                            command_type: 0,
+                            station_number: second_u16 
+                        }
+                    )
+                )
+            )
+        }
+        2 => {
+            // Welcome
+            Ok(
+                Message::ReplyMessage(
+                    Reply::ReplyWelcome(
+                        Welcome {
+                            reply_type: 2,
+                            num_stations: second_u16
+                        }
+                    )
+                )
+            )
+        }
+        3 => {
+            // Announce
+            Ok(
+                Message::ReplyMessage(
+                    Reply::ReplyAnnounce(
+                        Announce {
+                            reply_type: 3,
+                            songname_size: &data[1],
+                            songname: &data[2..]
+                        }
+                    )
+                )
+            )
+        }
+        4 => {
+            // InvalidCommand
+            Ok(
+                Message::ReplyMessage(
+                    Reply::ReplyInvalidCommand(
+                        InvalidCommand {
+                            reply_type: 4,
+                            reply_string_size: &data[1],
+                            reply_string: &data[2..]
+                        }
+                    )
+                )
+            )
+        }
+        _ => {
+            //Err(())
+            panic!("Data does not match Snowcast protocol!"); //TODO better error handling, return
+                                                              //error enum or something 
+                //eprintln!("Data does not match Snowcast protocol!")
+                //eprintln!("Data read: {}", &data)
+        }
+    }
+}
+
+//let something = Message::SendMessage(Send::SendHello(Hello ))
 
 pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) {
     let full_address = format!("{}:{}", ip, server_port);
@@ -184,7 +272,12 @@ pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) {
         Ok(mut stream) => {
             println!("Connected to server at {}", &full_address);
             let hello = Send::SendHello(Hello { command_type: 0, udp_port });
-            if let Send::SendHello(hi) = hello {};
+            //let something = Message::SendMessage(structs::Send::SendHello( Hello { command_type: 0, })));
+            if let Send::SendHello(hello) = hello {
+                hello
+            } else {
+
+            };
             let mut message_vec = vec!(0 as u8);
             let mut message_vec2 = udp_port.to_be_bytes().to_vec();
             message_vec.append(&mut message_vec2);
@@ -210,7 +303,7 @@ pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) {
         Err(error) => {
             eprintln!("There was an issue connecting to {}.", full_address);
             eprintln!("Error: {}", error);
-            eprintln!("Terminating program.");
+            panic!("Terminating program.");
         }
     }
 
@@ -250,8 +343,19 @@ pub fn handle_client(mut stream: TcpStream, file_vec: Vec<String>) -> Result<()>
                     println!("welcome_vec: {:?}", &welcome_vec);
                     stream.write_all(&welcome_vec[..])?;
                 }
+                
+                loop {
+                    let mut buf = [0 as u8; 3];
+                    match stream.read(&mut buf) {
+                        Ok(size) => {
+
+                        }
+                        Err(error) => {
+
+                        }
+                    };
+                }
                 //NetworkEndian::write_
-                Ok(())
             } else if data[0] == 1 {
                 //let announce = Reply::Announce { reply_type: 3, songname_size: 0, songname: &[0] }; //TODO need to implement song name and size stuff
                 Ok(())

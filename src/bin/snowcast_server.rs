@@ -27,11 +27,13 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                println!("New connection: {}", stream.peer_addr().unwrap());
+                println!("New connection: {}", &stream.peer_addr().unwrap());
+                //let stream_peer_add_copy = &stream.peer_addr().unwrap();
                 let file_vec_clone = file_vec.clone();
                 thread::spawn(move|| {
                     structs::handle_client(stream, file_vec_clone)
                 });
+                //println!("connection ended with {}", &stream_peer_add_copy)
             }
             Err(error) => {
                 eprintln!("An error occurred while accepting stream: {}", error);

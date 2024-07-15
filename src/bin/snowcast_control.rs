@@ -1,6 +1,6 @@
 use std::env;
 use std::io::{Read, Write, Result};
-use std::net::{server_namev4Addr, Ipv4Addr, TcpStream};
+use std::net::{Ipv4Addr, TcpStream};
 use snowcast::structs::initiate_handshake;
 
 fn main() -> Result<()> {
@@ -12,33 +12,36 @@ fn main() -> Result<()> {
                    <udp_port>");
         std::process::exit(1);
     }
+    let args1_parse = args[1].parse::<Ipv4Addr>();
     let server_name = if args[1] == "localhost" {
         "127.0.0.1".parse::<Ipv4Addr>().unwrap() //this is ok to unwrap bc we 
                                                  //check localhost
-    } else if let Ok(ip) = args[1].parse::<Ipv4Addr>() {
-        ip
+    } else if let Ok(_) = args1_parse {
+        args1_parse.unwrap()
     } else {
         panic!("The first argument must be a valid IPv4 address \
-                  (ex: 192.168.0.1) or localhost)");
+                  (ex: 192.168.0.1) or localhost");
     };
 
-    let server_port = if let Ok(port) = args[2].parse<u16>() {
-        port
+    let args2_parse = args[2].parse::<u16>();
+    let server_port = if let Ok(_) = args2_parse {
+        args2_parse.unwrap()
     } else {
         panic!("The second argument must be an integer from 0 to 65535");
     };
 
-    let udp_port = if let Ok(port) = args[3].parse<u16>() {
-        port
+    let args3_parse = args[3].parse::<u16>();
+    let udp_port = if let Ok(_) = args3_parse {
+        args3_parse.unwrap()
     } else {
         panic!("The third argument must be an integer from 0 to 65535");
     };
 
 
-    let server_name = &args[1]; // TODO IMPLEMENT INPUT CHECKS!!!!
-    let server_port = &args[2];
-    let udp_port = &args[3];
-    initiate_handshake(server_name, server_port, udp_port);
+    // let server_name = &args[1]; // TODO IMPLEMENT INPUT CHECKS!!!!
+    // let server_port = &args[2];
+    // let udp_port = &args[3];
+    initiate_handshake(&server_name, &server_port, &udp_port);
 
     /*let stationNum = 'input: */loop {
         println!("What station would you like to select? If you're done \
