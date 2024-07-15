@@ -71,13 +71,13 @@ pub trait Marshall {
 // }
 
 
-pub struct SetStation <'a> {
+pub struct SetStation {
     command_type: u8, // should be == 1
-    station_number: &'a u16,
+    station_number: u16,
 }
 
-impl <'a> SetStation <'a> {
-    fn create(station_number: &'a u16) -> Self {
+impl SetStation {
+    fn create(station_number: u16) -> Self {
         Self {
             command_type: 1,
             station_number,
@@ -96,13 +96,13 @@ impl <'a> SetStation <'a> {
 
 
 
-pub struct Welcome <'a> {
+pub struct Welcome {
     reply_type: u8,
-    num_stations: &'a u16,
+    num_stations: u16,
 }
 
-impl <'a> Welcome <'a> {
-    pub fn create(num_stations: &'a u16) -> Self {
+impl Welcome {
+    pub fn create(num_stations: u16) -> Self {
         Welcome {
             reply_type: 2,
             num_stations,
@@ -111,14 +111,14 @@ impl <'a> Welcome <'a> {
 }
 
 
-pub struct Announce <'a> {
+pub struct Announce <'a> { 
     reply_type: u8,
-    songname_size: &'a u8,
+    songname_size: u8,
     songname: &'a[u8],
 }
 
 impl <'a> Announce <'a> {
-    pub fn create(songname_size: &'a u8, songname: &'a[u8]) -> Self {
+    pub fn create(songname_size: u8, songname: &'a[u8]) -> Self {
         Self {
             reply_type: 3,
             songname_size,
@@ -141,11 +141,11 @@ impl <'a> Announce <'a> {
 
 pub struct InvalidCommand <'a> {
     reply_type: u8,
-    reply_string_size: &'a u8,
+    reply_string_size: u8,
     reply_string: &'a[u8],
 }
 impl <'a> InvalidCommand <'a> {
-    pub fn create(reply_string_size: &'a u8, reply_string: &'a [u8]) -> Self {
+    pub fn create(reply_string_size: u8, reply_string: &'a [u8]) -> Self {
         Self {
             reply_type: 4,
             reply_string_size,
@@ -179,7 +179,7 @@ pub enum Reply <'a> {
     ReplyAnnounce(Announce <'a>),
     ReplyInvalidCommand(InvalidCommand <'a>),
 }
-
+//stuff and things
 pub fn parse_to_enum <'a> (data: &[u8]) -> Result<Message>  {
     let mut second_u16: u16 = NetworkEndian::read_u16(&data[1..3]); //used for first
                                                                 //3 cases
@@ -191,7 +191,7 @@ pub fn parse_to_enum <'a> (data: &[u8]) -> Result<Message>  {
                     Send::SendHello(
                         Hello {
                             command_type: 0,
-                            udp_port: second_u16 
+                            udp_port: &second_u16 
                         }
                     )
                 )
@@ -230,7 +230,7 @@ pub fn parse_to_enum <'a> (data: &[u8]) -> Result<Message>  {
                     Reply::ReplyAnnounce(
                         Announce {
                             reply_type: 3,
-                            songname_size: &data[1],
+                            songname_size: data[1],
                             songname: &data[2..]
                         }
                     )
@@ -244,7 +244,7 @@ pub fn parse_to_enum <'a> (data: &[u8]) -> Result<Message>  {
                     Reply::ReplyInvalidCommand(
                         InvalidCommand {
                             reply_type: 4,
-                            reply_string_size: &data[1],
+                            reply_string_size: data[1],
                             reply_string: &data[2..]
                         }
                     )
