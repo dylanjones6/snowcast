@@ -18,7 +18,7 @@ pub struct SetStation {
 
 pub struct Welcome {
     reply_type: u8,
-    num_stations: u16,
+    number_stations: u16,
 }
 
 pub struct Announce <'a> {
@@ -81,7 +81,7 @@ pub fn parse_array_to_enum (data: &[u8]) -> Result<MessageSC>  {
                     ReplySC::ReplyWelcomeSC(
                         Welcome {
                             reply_type: 2,
-                            num_stations: second_u16
+                            number_stations: second_u16
         })))}
         3 => {
             // Announce
@@ -140,7 +140,7 @@ pub fn parse_enum_to_arr <'a> (message: MessageSC) -> Result<Box<[u8; 512]>> {
                 ReplySC::ReplyWelcomeSC(welcome) => {
                     let mut data = [0 as u8; 512];
                     data[0] = welcome.reply_type;
-                    BigEndian::write_u16(&mut data[1..3], welcome.num_stations);
+                    BigEndian::write_u16(&mut data[1..3], welcome.number_stations);
                     return Ok(data.into())
                 }
                 ReplySC::ReplyAnnounceSC(announce) => {
@@ -167,12 +167,12 @@ pub fn parse_enum_to_arr <'a> (message: MessageSC) -> Result<Box<[u8; 512]>> {
     }
 }
 
-pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) {
+pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) -> Result<()> {
     let full_address = format!("{}:{}", ip, server_port);
     println!("{}", &full_address);
     println!("test");
 
-    match TcpStream::connect(&full_address) {
+    let stream = match TcpStream::connect(&full_address) {
         Ok(mut stream) => {
             println!("Connected to server at {}", &full_address);
 
@@ -185,15 +185,38 @@ pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) {
 
             println!("Hello sent, awaiting response.");
 
-            let mut buf = [0 as u8; 3];
-            match stream.read_exact(&mut buf) {
+            let mut data = [0 as u8; 3];
+            if let Ok(n_bytes) = stream.read_exact(&mut data) {
+
+            }
+            match stream.read_exact(&mut data) {
                 Ok(_size) => {
                     //println!("data after read: {:?}", &buf);
-                    if buf[0] == 2 {
-                        println!("We received the welcome message!");
-                    } else {
-                        panic!("Received reply code: {}. Terminating program.", buf[0]);
-                    }
+                    //if data[0] == 2 {
+                        //println!("We received the welcome message!"); //TODO read in
+                                                                      //number_stations from
+                                                                      //welcome
+                    match parse_array_to_enum(&data) {
+                        Ok(message) => {
+                            if let MessageSC::ReplyMessageSC(
+                                    ReplySC::ReplyWelcomeSC(
+                                        welcome)) = message {
+                                println!("Welcome to Snowcast! The server \
+                                          has {} stations.\
+                                          ", welcome.number_stations);
+                            } else {
+                                panic!("Something other than a Welcome \
+                                        message.");
+                            }
+                        }
+                        Err(error) => {
+                                eprintln!("Error returned while parsing \
+                                           array: {}", error);
+                            }
+                        }
+                    // } else {
+                    //     panic!("Received reply code: {}. Terminating program.", buf[0]);
+                    // }
                 }
                 Err(error) => eprintln!("Error reading server response: {}", error),
             }
@@ -206,46 +229,51 @@ pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) {
     }
 }
 
-pub fn handle_client(mut stream: TcpStream, _file_vec: Vec<String>) -> Result<()> {
+pub fn handle_client(mut stream: TcpStream, number_stations: &u16) -> Result<()> {
     let mut data = [0 as u8; 3];
     //let mut data = vec![0; 3];
     match stream.read_exact(&mut data) {
         Ok(_) => {
             // if size != 3 { std::process::exit(1) };
-            if data[0] == 0 {
-                let welcome = MessageSC::ReplyMessageSC(ReplySC::ReplyWelcomeSC(
-                                Welcome {
-                                    reply_type: 2,
-                                    num_stations: 0 //TODO fn returns num_stations
-                }));
-                let data = *parse_enum_to_arr(welcome).unwrap();
-                println!("printing data from client: {:?}", &data);
-                let _ = stream.write_all(&data);
-                
-                loop {
-                    let mut buf = [0 as u8; 3];
-                    match stream.read_exact(&mut buf) {
-                        Ok(_) => {
+            //if data[0] == 0 {
+            let welcome = MessageSC::ReplyMessageSC(ReplySC::ReplyWelcomeSC(
+                            Welcome {
+                                reply_type: 2,
+                                number_stations: *number_stations //TODO fn returns number_stations
+            }));
+            let data = *parse_enum_to_arr(welcome).unwrap();
+            println!("printing data from client: {:?}", &data);
+            let _ = stream.write_all(&data);
+            
+            loop {
+                let mut buf = [0 as u8; 3];
+                match stream.read_exact(&mut buf) {
+                    Ok(_) => {
 
-                        }
-                        Err(error) => {
+                    }
+                    Err(error) => {
 
-                        }
-                    };
-                }
-                //NetworkEndian::write_
-            } else if data[0] == 1 {
-                // SetStation branch, receive and deal with station accordingly and send out
-                // announcement immediately
-                //let announce = Reply::Announce { reply_type: 3, songname_size: 0, songname: &[0] }; //TODO need to implement song name and size stuff
-                Ok(())
-            } else {
-                panic!("Message sent against protocol!");
-                //TODO implement InvalidCommand
+                    }
+                };
             }
+            //NetworkEndian::write_
+            //} else if data[0] == 1 {
+            //    // SetStation branch, receive and deal with station accordingly and send out
+            //    // announcement immediately
+            //    //let announce = Reply::Announce { reply_type: 3, songname_size: 0, songname: &[0] }; //TODO need to implement song name and size stuff
+            //    Ok(())
+            //} else {
+            //    panic!("Message sent against protocol!");
+            //    //TODO implement InvalidCommand
+            //}
         }
         Err(error) => {
             panic!("Error reading data stream: {error}");
         }
     }
+}
+
+pub fn set_station(stream: TcpStream, station_number: &u16) {
+
+
 }

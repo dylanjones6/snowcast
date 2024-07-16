@@ -1,7 +1,7 @@
 use std::env;
-use std::io::{Read, Write, Result};
-use std::net::{Ipv4Addr, TcpStream};
-use snowcast::structs::initiate_handshake;
+use std::io::/*{Read, Write, */Result/*}*/;
+use std::net::/*{*/Ipv4Addr/*, TcpStream}*/;
+use snowcast::structs::{initiate_handshake, set_station};
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -27,14 +27,16 @@ fn main() -> Result<()> {
     let server_port = if let Ok(_) = args2_parse {
         args2_parse.unwrap()
     } else {
-        panic!("The second argument must be an integer from 0 to 65535");
+        panic!("The second argument (<server_port>) must be an integer \
+                from 0 to 65535");
     };
 
     let args3_parse = args[3].parse::<u16>();
     let udp_port = if let Ok(_) = args3_parse {
         args3_parse.unwrap()
     } else {
-        panic!("The third argument must be an integer from 0 to 65535");
+        panic!("The third argument (<udp_port>) must be an integer \
+                from 0 to 65535");
     };
 
 
@@ -50,7 +52,7 @@ fn main() -> Result<()> {
         let _ = std::io::stdin().read_line(&mut input);
         let input: Vec<String> = input.trim().split_whitespace().map(String::from).collect();
         //println!("{:?}", input);
-        let station_num = if input.len() == 1 && input[0] == "q" {
+        let station_number = if input.len() == 1 && input[0] == "q" {
             std::process::exit(1);
         } else if input.len() != 1 || input[0].parse::<u16>().is_err() {
             eprintln!("Pick a station from 0 to 65535 or quit with \"q\".");
@@ -58,9 +60,10 @@ fn main() -> Result<()> {
         } else {
             input[0].parse::<u16>().unwrap()
         };
-        //set_station(&stationNum);
-        println!("selected station {}", &station_num);
-        //structs::SetStation(&station_num) // uncomment this at some point!
+        set_station(&station_number);
+
+        println!("selected station {}", &station_number);
+        //structs::SetStation(&station_number) // uncomment this at some point!
         //break stationNum
         //if stationNum.//EXISTS!
     };

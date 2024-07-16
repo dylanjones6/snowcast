@@ -20,6 +20,7 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
         std::process::exit(1);
     };
     let file_vec: Vec<String> = (&args[2..]).to_vec();
+    let number_stations: u16 = file_vec.len(); //TODO implement number_stations into response
 
     let listener = TcpListener::bind(format!("{}:{}", &ip, &tcp_port))?;
     for stream in listener.incoming() {
@@ -29,7 +30,7 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
                 //let stream_peer_add_copy = &stream.peer_addr().unwrap();
                 let file_vec_clone = file_vec.clone();
                 thread::spawn(move|| {
-                    structs::handle_client(stream, file_vec_clone)
+                    structs::handle_client(stream, &number_stations)
                 });
                 //println!("connection ended with {}", &stream_peer_add_copy)
             }
