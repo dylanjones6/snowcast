@@ -5,111 +5,21 @@ use crate::structs;
 use byteorder::{BigEndian, ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 
 
-
-// pub enum Send {
-//     Hello { command_type: u8, udp_port: u16 }, // command_type == 0
-//     SetStation { command_type: u8, station_number: u16 }, // command_type == 1
-// }
-// 
-// //pub enum Message {
-// //    Hello()
-// //}
-// 
-// 
-// pub enum Reply <'a> {
-//     Welcome { reply_type: u8, num_stations: u16 }, // reply_type == 2
-//     Announce { reply_type: u8, songname_size: u8, songname: &'a[u8]}, // reply_type == 3
-//     InvalidCommand { reply_type: u8, reply_string_size: u8, reply_string: &'a[u8]}, // reply_type == 4
-// }
-// 
-// pub trait Marshall {
-//     fn marshallize(&self) -> Vec<u8>;
-// }
-
-
-// enum Send {
-//     Hello,
-//     SetStation,
-// }
-
-
 pub struct Hello {
     //direction: Send,
     command_type: u8, // should be == 0
     udp_port: u16,
 }
 
-impl Hello {
-    pub fn create(udp_port:  u16) -> Self {
-        Self {
-            command_type: 0,
-            udp_port,
-        }
-    }
-}
-
-pub trait Marshall {
-    fn marshallize(&self) -> Vec<u8>;
-}
-
-
-// impl Marshall for Hello {
-//     fn marshallize(&self) -> Vec<u8> {
-//         
-//     }
-// }
-
-
-
-// impl Default for Hello {
-//     fn default() -> Hello {
-//         Hello {
-//             command_type: 0,
-//             udp_port: 0,
-//         }
-//     }
-// }
-
-
 pub struct SetStation {
     command_type: u8, // should be == 1
     station_number: u16,
 }
 
-impl SetStation {
-    fn create(station_number: u16) -> Self {
-        Self {
-            command_type: 1,
-            station_number,
-        }
-    }
-}
-
-// impl Default for SetStation {
-//     fn default() -> SetStation {
-//         SetStation {
-//             command_type: 1,
-//             station_number: 0,
-//         }
-//     }
-// }
-
-
-
 pub struct Welcome {
     reply_type: u8,
     num_stations: u16,
 }
-
-impl Welcome {
-    pub fn create(num_stations: u16) -> Self {
-        Welcome {
-            reply_type: 2,
-            num_stations,
-        }
-    }
-}
-
 
 pub struct Announce <'a> { 
     reply_type: u8,
@@ -117,87 +27,30 @@ pub struct Announce <'a> {
     songname: &'a [u8],
 }
 
-impl <'a> Announce <'a> {
-    pub fn create(songname_size: u8, songname: &'a [u8]) -> Self {
-        Self {
-            reply_type: 3,
-            songname_size,
-            songname,
-        }
-    }
-
-}
-
-// impl <'a> Default for Announce <'a> {
-//     fn default() -> Announce <'a> {
-//         Announce {
-//             reply_type: 3,
-//             songname_size: 0,
-//             songname: &[0],
-//         }
-//     }
-// }
-
-
 pub struct InvalidCommand <'a> {
     reply_type: u8,
     reply_string_size: u8,
     reply_string: &'a [u8],
 }
-impl <'a> InvalidCommand <'a> {
-    pub fn create(reply_string_size: u8, reply_string: &'a [u8]) -> Self {
-        Self {
-            reply_type: 4,
-            reply_string_size,
-            reply_string,
-        }
-    }
-}
 
-// impl <'a> Default for InvalidCommand <'a> {
-//     fn default() -> InvalidCommand <'a> {
-//         InvalidCommand {
-//             reply_type: 4,
-//             reply_string_size: 0,
-//             reply_string: &[0],
-//         }
-//     }
-// }
-
-pub enum Message <'a> {
-    SendMessage(Send ),
-    ReplyMessage(Reply <'a>), 
-}
-
-pub enum Send  {
-    SendHello(Hello ),
-    SendSetStation(SetStation ),
-}
-
-pub enum Reply <'a> {
-    ReplyWelcome(Welcome ),
-    ReplyAnnounce(Announce <'a>),
-    ReplyInvalidCommand(InvalidCommand <'a>),
-}
-
-pub fn parse_data_to_enum (data: &[u8]) -> Result<Message>  {
+pub fn parse_data_to_enum2(data: Vec<u8>) -> Result<MessageSC> {
     let second_u16: u16 = NetworkEndian::read_u16(&data[1..3]); //used for first
                                                                 //3 cases
     match &data[0] {
         0 => {
             // Hello
             Ok(
-                Message::SendMessage(
-                    Send::SendHello(
+                MessageSC::SendMessageSC(
+                    SendSC::SendHelloSC(
                         Hello {
                             command_type: 0,
-                            udp_port: second_u16 
+                            udp_port: second_u16,
         })))}
         1 => {
             // SetStation
             Ok(
-                Message::SendMessage(
-                    Send::SendSetStation(
+                MessageSC::SendMessageSC(
+                    SendSC::SendSetStationSC(
                         SetStation {
                             command_type: 0,
                             station_number: second_u16 
@@ -205,8 +58,8 @@ pub fn parse_data_to_enum (data: &[u8]) -> Result<Message>  {
         2 => {
             // Welcome
             Ok(
-                Message::ReplyMessage(
-                    Reply::ReplyWelcome(
+                MessageSC::ReplyMessageSC(
+                    ReplySC::ReplyWelcomeSC(
                         Welcome {
                             reply_type: 2,
                             num_stations: second_u16
@@ -214,8 +67,8 @@ pub fn parse_data_to_enum (data: &[u8]) -> Result<Message>  {
         3 => {
             // Announce
             Ok(
-                Message::ReplyMessage(
-                    Reply::ReplyAnnounce(
+                MessageSC::ReplyMessageSC(
+                    ReplySC::ReplyAnnounceSC(
                         Announce {
                             reply_type: 3,
                             songname_size: data[1],
@@ -224,8 +77,8 @@ pub fn parse_data_to_enum (data: &[u8]) -> Result<Message>  {
         4 => {
             // InvalidCommand
             Ok(
-                Message::ReplyMessage(
-                    Reply::ReplyInvalidCommand(
+                MessageSC::ReplyMessageSC(
+                    ReplySC::ReplyInvalidCommandSC(
                         InvalidCommand {
                             reply_type: 4,
                             reply_string_size: data[1],
@@ -241,34 +94,149 @@ pub fn parse_data_to_enum (data: &[u8]) -> Result<Message>  {
     }
 }
 
-pub fn parse_enum_to_data(message: Message) -> Result<&[u8]> {
-    match message {
-        Message::SendMessage(send) => {
-            send::<SendHello, SendSetStation>.command_type; // use traits instead
-            match send {
-                Send::SendHello(hello) => {
-                    //let mut data = [hello.command_type, hello.udp_port.to_be_bytes().iter()];
-                    let mut data = [0 as u8; 3];
-                    data[0] = hello.command_type;
-                    data[1..3].copy_from_slice(&hello.udp_port.to_be_bytes());
-                    return Ok(&data[..])
-                }
-                Send::SendSetStation(set_station) => {
-                    let mut data = [0 as u8; 3];
 
+pub fn parse_data_to_enum (data: &[u8]) -> Result<MessageSC>  {
+    let second_u16: u16 = NetworkEndian::read_u16(&data[1..3]); //used for first
+                                                                //3 cases
+    match &data[0] {
+        0 => {
+            // Hello
+            Ok(
+                MessageSC::SendMessageSC(
+                    SendSC::SendHelloSC(
+                        Hello {
+                            command_type: 0,
+                            udp_port: second_u16 
+        })))}
+        1 => {
+            // SetStation
+            Ok(
+                MessageSC::SendMessageSC(
+                    SendSC::SendSetStationSC(
+                        SetStation {
+                            command_type: 0,
+                            station_number: second_u16 
+        })))}
+        2 => {
+            // Welcome
+            Ok(
+                MessageSC::ReplyMessageSC(
+                    ReplySC::ReplyWelcomeSC(
+                        Welcome {
+                            reply_type: 2,
+                            num_stations: second_u16
+        })))}
+        3 => {
+            // Announce
+            Ok(
+                MessageSC::ReplyMessageSC(
+                    ReplySC::ReplyAnnounceSC(
+                        Announce {
+                            reply_type: 3,
+                            songname_size: data[1],
+                            songname: &data[2..]
+        })))}
+        4 => {
+            // InvalidCommand
+            Ok(
+                MessageSC::ReplyMessageSC(
+                    ReplySC::ReplyInvalidCommandSC(
+                        InvalidCommand {
+                            reply_type: 4,
+                            reply_string_size: data[1],
+                            reply_string: &data[2..]
+        })))}
+        _ => {
+            //Err(())
+            panic!("Data does not match Snowcast protocol!"); //TODO better error handling, return
+                                                              //error enum or something 
+                //eprintln!("Data does not match Snowcast protocol!")
+                //eprintln!("Data read: {}", &data)
+        }
+    }
+}
+
+pub enum MessageSC <'a> {
+    SendMessageSC(SendSC),
+    ReplyMessageSC(ReplySC <'a>),
+}
+
+// using ...SC naming scheme bc of collision with Send trait
+pub enum SendSC {
+    SendHelloSC(Hello),
+    SendSetStationSC(SetStation),
+}
+
+pub enum ReplySC <'a> {
+    ReplyWelcomeSC(Welcome),
+    ReplyAnnounceSC(Announce <'a>),
+    ReplyInvalidCommandSC(InvalidCommand <'a>),
+}
+
+pub fn parse_enum_to_data(message: MessageSC) -> Result<Vec<u8>> {
+    match message {
+        MessageSC::SendMessageSC(send) => {
+            //send::<SendHello, SendSetStation>.command_type; // use traits instead
+            match send {
+                SendSC::SendHelloSC(hello) => {
+                    // //let mut data = [hello.command_type, hello.udp_port.to_be_bytes().iter()];
+                    // let mut data = [0 as u8; 3];
+                    // data[0] = hello.command_type;
+                    // BigEndian::write_u16(&mut data[1..3], hello.udp_port);
+                    // //data[1..3].copy_from_slice(&hello.udp_port.to_be_bytes());
+                    // return Ok(&data)
+                    let mut vec = Vec::new();
+                    vec.push(hello.command_type); //don't specify enum bc it's only one byte
+                    vec.write_u16::<NetworkEndian>(hello.udp_port);
+                    Ok(vec)
+                }
+                SendSC::SendSetStationSC(set_station) => {
+                    // let mut data = [0 as u8; 3];
+                    // data[0] = set_station.command_type;
+                    // BigEndian::write_u16(&mut data[1..3], set_station.station_number);
+                    // return Ok(&data)
+                    let mut vec = Vec::new();
+                    vec.push(set_station.command_type); //don't specify enum bc it's only one byte
+                    vec.write_u16::<NetworkEndian>(set_station.station_number);
+                    Ok(vec)
                 }
             }
         }
-        Message::ReplyMessage(reply) => {
+        MessageSC::ReplyMessageSC(reply) => {
             match reply {
-                Reply::ReplyWelcome(welcome) => {
-
+                ReplySC::ReplyWelcomeSC(welcome) => {
+                    // let mut data = [0 as u8; 3];
+                    // data[0] = welcome.reply_type;
+                    // BigEndian::write_u16(&mut data[1..3], welcome.num_stations);
+                    // return Ok(&data)
+                    let mut vec = Vec::new();
+                    vec.push(welcome.reply_type); //don't specify enum bc it's only one byte
+                    vec.write_u16::<NetworkEndian>(welcome.num_stations);
+                    Ok(vec)
                 }
-                Reply::ReplyAnnounce(announce) => {
-
+                ReplySC::ReplyAnnounceSC(announce) => {
+                    // let mut data = [0 as u8; 512];
+                    // data[0] = announce.reply_type;
+                    // data[1] = announce.songname_size;
+                    // BigEndian::write_u16(&data[2..], announce.songname);
+                    let mut vec = Vec::new();
+                    vec.push(announce.reply_type); //don't specify enum bc it's only one byte
+                    vec.push(announce.songname_size);
+                    for i in announce.songname { // TODO use iterator here instead
+                        vec.push(*i)
+                    }
+                    //vec.push(announce.songname.into_iter());
+                    Ok(vec)
                 }
-                Reply::ReplyInvalidCommand(invalid_command) => {
-
+                ReplySC::ReplyInvalidCommandSC(invalid_command) => {
+                    let mut vec = Vec::new();
+                    vec.push(invalid_command.reply_type); //don't specify enum bc it's only one byte
+                    vec.push(invalid_command.reply_string_size);
+                    for i in invalid_command.reply_string { // TODO use iterator here instead
+                        vec.push(*i)
+                    }
+                    //vec.push(announce.songname.into_iter());
+                    Ok(vec)
                 }
             }
         }
@@ -297,7 +265,7 @@ pub fn send_data(mut stream: TcpStream, message: &[u8]) {
     let _ = stream.write_all(message);
 }
 
-//let something = Message::SendMessage(Send::SendHello(Hello ))
+//let something = MessageSC::SendMessageSC(SendSC::SendHelloSC(Hello ))
 
 pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) {
     let full_address = format!("{}:{}", ip, server_port);
@@ -307,8 +275,8 @@ pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) {
     match TcpStream::connect(&full_address) {
         Ok(mut stream) => {
             println!("Connected to server at {}", &full_address);
-            let hello = Message::SendMessage(Send::SendHello(Hello { command_type: 0, udp_port: *udp_port }));
-            //let something = Message::SendMessage(structs::Send::SendHello( Hello { command_type: 0, })));a
+            let hello = MessageSC::SendMessageSC(SendSC::SendHelloSC(Hello { command_type: 0, udp_port: *udp_port }));
+            //let something = MessageSC::SendMessageSC(structs::SendSC::SendHelloSC( Hello { command_type: 0, })));a
             //
             //  if let Reply::ReplyWelcome(welcome) = greeting {
             //      let mut welcome_vec = vec![welcome.reply_type];
@@ -320,12 +288,12 @@ pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) {
             //      println!("welcome_vec: {:?}", &welcome_vec);
             //      stream.write_all(&welcome_vec[..])?;
             //  }
-            if let Message::SendMessage(Send::SendHello(hello)) = hello {
+            if let MessageSC::SendMessageSC(SendSC::SendHelloSC(hello)) = hello {
                 hello
             } else {
                 panic!("hello isn't hello");
             };
-            let mut message_vec = vec!(0 as u8);
+            let mut message_vec = vec![0 as u8];
             let mut message_vec2 = udp_port.to_be_bytes().to_vec();
             message_vec.append(&mut message_vec2);
 
@@ -375,12 +343,12 @@ pub fn handle_client(mut stream: TcpStream, file_vec: Vec<String>) -> Result<()>
                 println!("welcome_vec: {:?}", &welcome_vec);
                 stream.write_all(&welcome_vec[..])?;
                 */
-                let greeting = Reply::ReplyWelcome(
+                let greeting = ReplySC::ReplyWelcomeSC(
                                 Welcome {
                                     reply_type: 2,
                                     num_stations: 0
                 });
-                if let Reply::ReplyWelcome(welcome) = greeting {
+                if let ReplySC::ReplyWelcomeSC(welcome) = greeting {
                     let mut welcome_vec = vec![welcome.reply_type];
                     let mut welcome_vec2 = welcome.num_stations.to_be_bytes().to_vec();
                     welcome_vec.append(&mut welcome_vec2);
