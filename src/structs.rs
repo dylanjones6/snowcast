@@ -111,14 +111,14 @@ impl Welcome {
 }
 
 
-pub struct Announce  { 
+pub struct Announce <'a> { 
     reply_type: u8,
     songname_size: u8,
-    songname: [u8],
+    songname: &'a [u8],
 }
 
-impl  Announce  {
-    pub fn create(songname_size: u8, songname: [u8]) -> Self {
+impl <'a> Announce <'a> {
+    pub fn create(songname_size: u8, songname: &'a [u8]) -> Self {
         Self {
             reply_type: 3,
             songname_size,
@@ -139,13 +139,13 @@ impl  Announce  {
 // }
 
 
-pub struct InvalidCommand  {
+pub struct InvalidCommand <'a> {
     reply_type: u8,
     reply_string_size: u8,
-    reply_string: [u8],
+    reply_string: &'a [u8],
 }
-impl  InvalidCommand  {
-    pub fn create(reply_string_size: u8, reply_string:  [u8]) -> Self {
+impl <'a> InvalidCommand <'a> {
+    pub fn create(reply_string_size: u8, reply_string: &'a [u8]) -> Self {
         Self {
             reply_type: 4,
             reply_string_size,
@@ -164,9 +164,9 @@ impl  InvalidCommand  {
 //     }
 // }
 
-pub enum Message  {
+pub enum Message <'a> {
     SendMessage(Send ),
-    ReplyMessage(Reply ), 
+    ReplyMessage(Reply <'a>), 
 }
 
 pub enum Send  {
@@ -174,14 +174,14 @@ pub enum Send  {
     SendSetStation(SetStation ),
 }
 
-pub enum Reply  {
+pub enum Reply <'a> {
     ReplyWelcome(Welcome ),
-    ReplyAnnounce(Announce ),
-    ReplyInvalidCommand(InvalidCommand ),
+    ReplyAnnounce(Announce <'a>),
+    ReplyInvalidCommand(InvalidCommand <'a>),
 }
 
-pub fn parse_to_enum <'a> (data: &[u8]) -> Result<Message>  {
-    let mut second_u16: u16 = NetworkEndian::read_u16(&data[1..3]); //used for first
+pub fn parse_data_to_enum (data: &[u8]) -> Result<Message>  {
+    let second_u16: u16 = NetworkEndian::read_u16(&data[1..3]); //used for first
                                                                 //3 cases
     match &data[0] {
         0 => {
@@ -191,12 +191,8 @@ pub fn parse_to_enum <'a> (data: &[u8]) -> Result<Message>  {
                     Send::SendHello(
                         Hello {
                             command_type: 0,
-                            udp_port: &second_u16 
-                        }
-                    )
-                )
-            )
-        }
+                            udp_port: second_u16 
+        })))}
         1 => {
             // SetStation
             Ok(
@@ -205,11 +201,7 @@ pub fn parse_to_enum <'a> (data: &[u8]) -> Result<Message>  {
                         SetStation {
                             command_type: 0,
                             station_number: second_u16 
-                        }
-                    )
-                )
-            )
-        }
+        })))}
         2 => {
             // Welcome
             Ok(
@@ -218,11 +210,7 @@ pub fn parse_to_enum <'a> (data: &[u8]) -> Result<Message>  {
                         Welcome {
                             reply_type: 2,
                             num_stations: second_u16
-                        }
-                    )
-                )
-            )
-        }
+        })))}
         3 => {
             // Announce
             Ok(
@@ -232,11 +220,7 @@ pub fn parse_to_enum <'a> (data: &[u8]) -> Result<Message>  {
                             reply_type: 3,
                             songname_size: data[1],
                             songname: &data[2..]
-                        }
-                    )
-                )
-            )
-        }
+        })))}
         4 => {
             // InvalidCommand
             Ok(
@@ -246,11 +230,7 @@ pub fn parse_to_enum <'a> (data: &[u8]) -> Result<Message>  {
                             reply_type: 4,
                             reply_string_size: data[1],
                             reply_string: &data[2..]
-                        }
-                    )
-                )
-            )
-        }
+        })))}
         _ => {
             //Err(())
             panic!("Data does not match Snowcast protocol!"); //TODO better error handling, return
@@ -259,6 +239,62 @@ pub fn parse_to_enum <'a> (data: &[u8]) -> Result<Message>  {
                 //eprintln!("Data read: {}", &data)
         }
     }
+}
+
+pub fn parse_enum_to_data(message: Message) -> Result<&[u8]> {
+    match message {
+        Message::SendMessage(send) => {
+            send::<SendHello, SendSetStation>.command_type; // use traits instead
+            match send {
+                Send::SendHello(hello) => {
+                    //let mut data = [hello.command_type, hello.udp_port.to_be_bytes().iter()];
+                    let mut data = [0 as u8; 3];
+                    data[0] = hello.command_type;
+                    data[1..3].copy_from_slice(&hello.udp_port.to_be_bytes());
+                    return Ok(&data[..])
+                }
+                Send::SendSetStation(set_station) => {
+                    let mut data = [0 as u8; 3];
+
+                }
+            }
+        }
+        Message::ReplyMessage(reply) => {
+            match reply {
+                Reply::ReplyWelcome(welcome) => {
+
+                }
+                Reply::ReplyAnnounce(announce) => {
+
+                }
+                Reply::ReplyInvalidCommand(invalid_command) => {
+
+                }
+            }
+        }
+    }
+}
+
+            //  if let Reply::ReplyWelcome(welcome) = greeting {
+            //      let mut welcome_vec = vec![welcome.reply_type];
+            //      let mut welcome_vec2 = welcome.num_stations.to_be_bytes().to_vec();
+            //      welcome_vec.append(&mut welcome_vec2);
+            //      println!("coming from within enum!");
+            //      println!("reply_type: {}", &welcome.reply_type);
+            //      println!("num_stations: {}", &welcome.num_stations);
+            //      println!("welcome_vec: {:?}", &welcome_vec);
+            //      stream.write_all(&welcome_vec[..])?;
+            
+
+pub fn read_data (mut stream: TcpStream) -> Result<Box<[u8; 512]>> {
+    let mut data = [0 as u8; 512];
+    stream.read_exact(&mut data)?;
+    Ok(data.into())
+}
+
+//pointless hmmmmm
+pub fn send_data(mut stream: TcpStream, message: &[u8]) {
+    let _ = stream.write_all(message);
 }
 
 //let something = Message::SendMessage(Send::SendHello(Hello ))
@@ -271,12 +307,23 @@ pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) {
     match TcpStream::connect(&full_address) {
         Ok(mut stream) => {
             println!("Connected to server at {}", &full_address);
-            let hello = Send::SendHello(Hello { command_type: 0, udp_port });
-            //let something = Message::SendMessage(structs::Send::SendHello( Hello { command_type: 0, })));
-            if let Send::SendHello(hello) = hello {
+            let hello = Message::SendMessage(Send::SendHello(Hello { command_type: 0, udp_port: *udp_port }));
+            //let something = Message::SendMessage(structs::Send::SendHello( Hello { command_type: 0, })));a
+            //
+            //  if let Reply::ReplyWelcome(welcome) = greeting {
+            //      let mut welcome_vec = vec![welcome.reply_type];
+            //      let mut welcome_vec2 = welcome.num_stations.to_be_bytes().to_vec();
+            //      welcome_vec.append(&mut welcome_vec2);
+            //      println!("coming from within enum!");
+            //      println!("reply_type: {}", &welcome.reply_type);
+            //      println!("num_stations: {}", &welcome.num_stations);
+            //      println!("welcome_vec: {:?}", &welcome_vec);
+            //      stream.write_all(&welcome_vec[..])?;
+            //  }
+            if let Message::SendMessage(Send::SendHello(hello)) = hello {
                 hello
             } else {
-
+                panic!("hello isn't hello");
             };
             let mut message_vec = vec!(0 as u8);
             let mut message_vec2 = udp_port.to_be_bytes().to_vec();
@@ -329,10 +376,10 @@ pub fn handle_client(mut stream: TcpStream, file_vec: Vec<String>) -> Result<()>
                 stream.write_all(&welcome_vec[..])?;
                 */
                 let greeting = Reply::ReplyWelcome(
-                                                   Welcome {
-                                                       reply_type: 2,
-                                                       num_stations: &0
-                                                   });
+                                Welcome {
+                                    reply_type: 2,
+                                    num_stations: 0
+                });
                 if let Reply::ReplyWelcome(welcome) = greeting {
                     let mut welcome_vec = vec![welcome.reply_type];
                     let mut welcome_vec2 = welcome.num_stations.to_be_bytes().to_vec();
