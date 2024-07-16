@@ -44,7 +44,7 @@ fn main() -> Result<()> {
     initiate_handshake(&server_name, &server_port, &udp_port);
 
     /*let stationNum = 'input: */loop {
-        println!("What station would you like to select? If you're done \
+        println!("What station would you like to select? If you're done, \
                   press \"q\" to exit.");
         let mut input = String::new();
         let _ = std::io::stdin().read_line(&mut input);
@@ -58,7 +58,7 @@ fn main() -> Result<()> {
         } else {
             input[0].parse::<u16>().unwrap()
         };
-        //SetStation(&stationNum)
+        //set_station(&stationNum);
         println!("selected station {}", &station_num);
         //structs::SetStation(&station_num) // uncomment this at some point!
         //break stationNum

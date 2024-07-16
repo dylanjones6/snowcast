@@ -12,7 +12,7 @@ pub struct Hello {
 }
 
 pub struct SetStation {
-    command_type: u8, // should be == 1
+    command_type: u8, // should be == 1 station_number: u16,
     station_number: u16,
 }
 
@@ -204,7 +204,6 @@ pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) {
             panic!("Terminating program.");
         }
     }
-
 }
 
 pub fn handle_client(mut stream: TcpStream, _file_vec: Vec<String>) -> Result<()> {
@@ -225,11 +224,11 @@ pub fn handle_client(mut stream: TcpStream, _file_vec: Vec<String>) -> Result<()
                 
                 loop {
                     let mut buf = [0 as u8; 3];
-                    match stream.read(&mut buf) {
-                        Ok(_size) => {
+                    match stream.read_exact(&mut buf) {
+                        Ok(_) => {
 
                         }
-                        Err(_error) => {
+                        Err(error) => {
 
                         }
                     };
