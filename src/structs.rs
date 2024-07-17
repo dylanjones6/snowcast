@@ -2,8 +2,10 @@ use std::collections::{HashMap, hash_map::Entry};
 use std::net::{TcpStream, UdpSocket, Ipv4Addr};
 use std::io::{ErrorKind, Read, Result, Seek, Write};
 use std::fs::File;
-use std::sync::mpsc;
+//use std::sync::mpsc;
+use std::sync::Mutex;
 use std::{thread, time};
+use byteorder::ReadBytesExt;
 
 
 //use crate::structs;
@@ -173,25 +175,19 @@ pub fn parse_enum_to_arr <'a> (message: MessageSC) -> Result<Box<[u8; 512]>> {
     }
 }
 
-pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) -> Result<()> {
-    let full_address = format!("{}:{}", ip, server_port);
-    println!("{}", &full_address);
-    println!("test");
-
-    let mut stream = TcpStream::connect(&full_address)?;// {
-    
-    println!("Connected to server at {}", &full_address);
+pub fn initiate_handshake(mut stream: TcpStream, udp_port: &u16) -> Result<TcpStream> {
 
     let hello = MessageSC::SendMessageSC(SendSC::SendHelloSC(
                     Hello { command_type: 0, udp_port: *udp_port,}
     ));
     let data = *parse_enum_to_arr(hello).unwrap();
-    println!("printing data sent from client: {:?}", &data);
+    println!("printing data sent from client in handshake: {:?}", &data);
     let _ = stream.write_all(&data);
     println!("Hello sent, awaiting response.");
 
     let mut data = [0 as u8; 3];
     let _n_bytes = stream.read_exact(&mut data)?;
+    println!("data read by client following hello send: {:?}", &data);
     let message = if let Ok(
                             MessageSC::ReplyMessageSC(
                                 ReplySC::ReplyWelcomeSC(
@@ -203,18 +199,19 @@ pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) -> R
 
     println!("Welcome to Snowcast! The server has {} stations.",
               message.number_stations);
+    Ok(stream)
 
-    Ok(())
 }
 
-pub fn handle_client <T> (mut stream: TcpStream, ip: Ipv4Addr,
+pub fn handle_client (mut stream: TcpStream, ip: &Ipv4Addr,
     file_vec: Vec<String>,
-    tx: mpsc::Sender<HashMap<u16, Vec<u16>>>,
-    rx: mpsc::Sender<HashMap<u16, Vec<u16>>>,
-    active_stations: HashMap<u16, Vec<u16>>) -> Result<()> {
+    //_tx: mpsc::Sender<HashMap<u16, Vec<u16>>>,
+    //_rx: mpsc::Receiver<HashMap<u16, Vec<u16>>>,
+    mut active_stations: Mutex<HashMap<u16, Vec<u16>>>) -> Result<()> {
 
     let mut data = [0 as u8; 3];
     let _ = stream.read_exact(&mut data)?;
+    println!("data read by server at top of handle_client: {:?}", &data);
     let file_vec_clone = file_vec.clone();
     let number_stations: u16 = file_vec_clone.len().try_into().unwrap();
 
@@ -230,23 +227,24 @@ pub fn handle_client <T> (mut stream: TcpStream, ip: Ipv4Addr,
             panic!("Error parsing array: {}", error);
         }
     };
-    
+    println!("printing data from client: {:?}", &data);
 
-    
     let welcome = MessageSC::ReplyMessageSC(ReplySC::ReplyWelcomeSC(
                     Welcome {
                         reply_type: 2,
                         number_stations, //TODO fn returns number_stations
     }));
     let data = *parse_enum_to_arr(welcome)?;
-    println!("printing data from client: {:?}", &data);
+    println!("welcome sent from server: {:?}", &data);
     let _ = stream.write_all(&data);
     //let first_time = true;
     
+    
     loop {
         let mut data = [0 as u8; 3];
-        stream.read_exact(&mut data)?;
-        match parse_array_to_enum(&mut data){
+        stream.read_exact(&mut data)?; //TODO NEED TO AWAIT RESULT HERE
+        println!("data read by server anticipating set_station: {:?}", &data);
+        match parse_array_to_enum(&mut data) {
             Ok(MessageSC::SendMessageSC(
                     SendSC::SendSetStationSC(set_station))) => {
                 //UPDATE THE ACTIVE STATIONS
@@ -272,11 +270,11 @@ pub fn handle_client <T> (mut stream: TcpStream, ip: Ipv4Addr,
                 //     }
 
                 // }
-                let key = match active_stations.iter().find_map(|(key, &vec)| if vec.contains(&message.udp_port) { Some(key) } else { None }) {
-                    Some(old_key) => old_key,
-                    None => &set_station.station_number,
+                let key = match active_stations.lock().unwrap().iter().find_map(|(key, &ref vec)| if vec.contains(&message.udp_port) { Some(key) } else { None }) {
+                    Some(old_key) => old_key.clone(),
+                    None => set_station.station_number.clone(),
                 };
-                match active_stations.entry(*key) {
+                match active_stations.lock().unwrap().entry(key) {
                     Entry::Vacant(entry) => {
                         entry.insert(vec![message.udp_port]);
                     }
@@ -284,7 +282,7 @@ pub fn handle_client <T> (mut stream: TcpStream, ip: Ipv4Addr,
                         entry.get_mut().push(message.udp_port);
                     }
                 }
-                broadcast_song(file_vec[set_station.station_number as usize], ip, message.udp_port)
+                let _ = broadcast_song(&file_vec[set_station.station_number as usize], ip, message.udp_port);
                 
 
                 //set_station.station_number
@@ -313,7 +311,7 @@ pub fn handle_client <T> (mut stream: TcpStream, ip: Ipv4Addr,
     //}
 }
 
-pub fn broadcast_song(song_path: String,/* songname: String,*/ server_name: Ipv4Addr, udp_port: u16) -> Result<()> {
+pub fn broadcast_song(song_path: &str,/* songname: String,*/ server_name: &Ipv4Addr, udp_port: u16) -> Result<()> {
     
     // BIG TODO: maybe flip this somehow so the looping is always happening 
     // and writing to stream is done on a per thread basis? or split into play
@@ -328,44 +326,76 @@ pub fn broadcast_song(song_path: String,/* songname: String,*/ server_name: Ipv4
     // 16384 bytes/second = 64 bits or 8 bytes * 2048 / sec
     // u64 every 0.00048828125
     //
-    let mut buf = [0 as u8; 1024];
+    //let mut buf = [0 as u8; 1024];
+    let mut buf = [0 as u8; 8];
     let mut file = File::open(song_path)?;
-    let time_gap = time::Duration::from_micros(62500);
-    // WHAT IS THE ENDIAN-NESS OF THIS READING AND SENDING???
+    //let time_gap = time::Duration::from_micros(62500);
+    let time_gap_num = 488280;
+    let time_gap = time::Duration::from_nanos(time_gap_num);
+    let smaller_time_gap = time::Duration::from_nanos(time_gap_num/8);
     loop { //song loop
+        let _ = file.rewind();
         'within_song: loop{
-            match file.read_exact(&mut buf) { //read methods advance cursor so we
+            match file.read_u64::<NetworkEndian>() { //read methods advance cursor so we
                                               //don't need to move positions through
                                               //the file
-                Ok(_) => {
+                Ok(data) => {
+                    NetworkEndian::write_u64(&mut buf, data);
                     let _ = &mut socket.send(&buf);
                     thread::sleep(time_gap);
                 }
                 Err(error) => match error.kind() {
                     ErrorKind::UnexpectedEof => {
-                        let mut vec = Vec::new();
-                        let _ = file.read_to_end(&mut vec);
-                        let _ = socket.send(&vec);
-                        let _ = file.rewind(); // this is maybe the issue if song doesn't loop
-                        break 'within_song;
-
+                        // let mut vec = Vec::new();
+                        // let _ = file.read_to_end(&mut vec);
+                        // let _ = socket.send(&vec);
+                        // let _ = file.rewind(); // this is maybe the issue if song doesn't loop
+                        // break 'within_song;
+                        for _ in 0..8 {
+                            match file.read_u8() {
+                                Ok(data) => {
+                                    let _ = &mut socket.send(&[data]);
+                                    thread::sleep(smaller_time_gap);
+                                }
+                                Err(error) => match error.kind() {
+                                    ErrorKind::UnexpectedEof => {
+                                        break 'within_song
+                                    }
+                                    _ => {
+                                        panic!("Ran into a different error while completing the song: {}", error);
+                                    }
+                                }
+                            }
+                        };
                         //let mut buf = [0 as u8; 1024];
                         //let arr: [u8; 1024] = vec.as_slice().try_into().unwrap();
-
                         //vec.try_into().unwrap_or_else(|vec: Vec<T> | panic!("Issue creating array"));
                     }
                     _ => {
-                        panic!("Error while reading song file: {}", &songname);
+                        panic!("Error while reading song file: {}", song_path);
                     }
                 }
             }
         }
     }
-
-
 }
 
-pub fn set_station(stream: TcpStream, station_number: &u16) {
-
-
+pub fn set_station(mut stream: TcpStream, station_number: u16) -> Result<TcpStream> {
+    let set_station = MessageSC::SendMessageSC(
+        SendSC::SendSetStationSC(
+            SetStation {
+                command_type: 1,
+                station_number,
+    }));
+    let data = *parse_enum_to_arr(set_station)?;
+    println!("data sent from set_station: {:?}", &data);
+    match stream.write_all(&data) {
+        Ok(_) => {
+            return Ok(stream)
+        }
+        Err(error) => {
+            panic!("Error caused while set_station wrote to stream: {}",
+                error);
+        }
+    }
 }

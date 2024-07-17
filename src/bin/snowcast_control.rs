@@ -1,6 +1,6 @@
 use std::env;
 use std::io::/*{Read, Write, */Result/*}*/;
-use std::net::/*{*/Ipv4Addr/*, TcpStream}*/;
+use std::net::{Ipv4Addr, TcpStream};
 use snowcast::structs::{initiate_handshake, set_station};
 
 fn main() -> Result<()> {
@@ -43,9 +43,18 @@ fn main() -> Result<()> {
     // let server_name = &args[1]; // TODO IMPLEMENT INPUT CHECKS!!!!
     // let server_port = &args[2];
     // let udp_port = &args[3];
-    initiate_handshake(&server_name, &server_port, &udp_port);
+    //
+    let full_address = format!("{}:{}", server_name, server_port);
+    println!("{}", &full_address);
+    println!("test");
 
-    /*let stationNum = 'input: */loop {
+    let mut stream = TcpStream::connect(&full_address)?;// {
+
+    println!("Connected to server at {}", &full_address);
+
+    stream = initiate_handshake(stream, &udp_port)?;
+
+    loop {
         println!("What station would you like to select? If you're done, \
                   press \"q\" to exit.");
         let mut input = String::new();
@@ -60,13 +69,12 @@ fn main() -> Result<()> {
         } else {
             input[0].parse::<u16>().unwrap()
         };
-        set_station(&station_number);
 
+        stream = set_station(stream, station_number)?;
         println!("selected station {}", &station_number);
         //structs::SetStation(&station_number) // uncomment this at some point!
         //break stationNum
         //if stationNum.//EXISTS!
     };
-    //SetStation(&stationNum);
 }
 
