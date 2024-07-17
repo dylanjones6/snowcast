@@ -1,6 +1,8 @@
+use std::collections::{HashMap, hash_map::Entry};
 use std::net::{TcpStream, UdpSocket, Ipv4Addr};
 use std::io::{ErrorKind, Read, Result, Seek, Write};
 use std::fs::File;
+use std::sync::mpsc;
 use std::{thread, time};
 
 
@@ -205,9 +207,16 @@ pub fn initiate_handshake(ip: &Ipv4Addr, server_port: &u16, udp_port: &u16) -> R
     Ok(())
 }
 
-pub fn handle_client(mut stream: TcpStream, number_stations: &u16) -> Result<()> {
+pub fn handle_client <T> (mut stream: TcpStream, ip: Ipv4Addr,
+    file_vec: Vec<String>,
+    tx: mpsc::Sender<HashMap<u16, Vec<u16>>>,
+    rx: mpsc::Sender<HashMap<u16, Vec<u16>>>,
+    active_stations: HashMap<u16, Vec<u16>>) -> Result<()> {
+
     let mut data = [0 as u8; 3];
     let _ = stream.read_exact(&mut data)?;
+    let file_vec_clone = file_vec.clone();
+    let number_stations: u16 = file_vec_clone.len().try_into().unwrap();
 
     let message = match parse_array_to_enum(&data) {
         Ok(MessageSC::SendMessageSC(
@@ -222,14 +231,17 @@ pub fn handle_client(mut stream: TcpStream, number_stations: &u16) -> Result<()>
         }
     };
     
+
+    
     let welcome = MessageSC::ReplyMessageSC(ReplySC::ReplyWelcomeSC(
                     Welcome {
                         reply_type: 2,
-                        number_stations: *number_stations //TODO fn returns number_stations
+                        number_stations, //TODO fn returns number_stations
     }));
     let data = *parse_enum_to_arr(welcome)?;
     println!("printing data from client: {:?}", &data);
     let _ = stream.write_all(&data);
+    //let first_time = true;
     
     loop {
         let mut data = [0 as u8; 3];
@@ -237,6 +249,42 @@ pub fn handle_client(mut stream: TcpStream, number_stations: &u16) -> Result<()>
         match parse_array_to_enum(&mut data){
             Ok(MessageSC::SendMessageSC(
                     SendSC::SendSetStationSC(set_station))) => {
+                //UPDATE THE ACTIVE STATIONS
+
+                // match active_stations.iter().find_map(|(key, &vec)| if vec.contains(&message.udp_port) { Some(key) } else { None }) {
+                //     Some(old_key) => {
+                //         match active_stations.entry(old_key) {
+                //             Entry::Vacant(entry) => {
+
+                //             }
+                //             Entry::Occupied(entry) => {
+
+                //             }
+
+                //         }
+
+                //     }
+                //     None => {
+                //         match active_stations.entry(set_station.station_number) {
+                //             Entry::Vacant(entry) => { entry.insert(vec![message.udp_port]); },
+                //             Entry::Occupied(mut entry) => { entry.get_mut().push(message.udp_port); },
+                //         }
+                //     }
+
+                // }
+                let key = match active_stations.iter().find_map(|(key, &vec)| if vec.contains(&message.udp_port) { Some(key) } else { None }) {
+                    Some(old_key) => old_key,
+                    None => &set_station.station_number,
+                };
+                match active_stations.entry(*key) {
+                    Entry::Vacant(entry) => {
+                        entry.insert(vec![message.udp_port]);
+                    }
+                    Entry::Occupied(mut entry) => {
+                        entry.get_mut().push(message.udp_port);
+                    }
+                }
+                broadcast_song(file_vec[set_station.station_number as usize], ip, message.udp_port)
                 
 
                 //set_station.station_number
@@ -265,7 +313,13 @@ pub fn handle_client(mut stream: TcpStream, number_stations: &u16) -> Result<()>
     //}
 }
 
-pub fn broadcast_song (song_path: String, songname: String, server_name: Ipv4Addr, udp_port: u16) -> Result<()> {
+pub fn broadcast_song(song_path: String,/* songname: String,*/ server_name: Ipv4Addr, udp_port: u16) -> Result<()> {
+    
+    // BIG TODO: maybe flip this somehow so the looping is always happening 
+    // and writing to stream is done on a per thread basis? or split into play
+    // song and broadcast functions, play_song() plays a file chunk by chunk
+    // and broadcast() sends out the info to the given port
+
     let full_ip = format!("{}:{}", server_name, udp_port);
     let socket = UdpSocket::bind(full_ip).expect("Couldn't bind to address.");
     // 16384 bytes/second = 1024 bytes * 16 /sec  // MUST be < 1500 bytes/sec

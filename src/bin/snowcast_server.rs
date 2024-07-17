@@ -1,9 +1,11 @@
 use std::thread;
-use std::net::TcpListener;
+use std::net::{Ipv4Addr, TcpListener};
 use snowcast::structs;
+use std::sync::mpsc;
+use std::collections::{hash_map, HashMap};
 
 fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
-    let ip = "127.0.0.1";
+    let ip = "127.0.0.1".parse::<Ipv4Addr>();
     //let tcp_port = "16800";
     let args: Vec<String> = std::env::args().collect();
 
@@ -20,7 +22,28 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
         std::process::exit(1);
     };
     let file_vec: Vec<String> = (&args[2..]).to_vec();
-    let number_stations: u16 = file_vec.len(); //TODO implement number_stations into response
+
+    let (tx, rx) = mpsc::channel();
+    let active_stations = HashMap::new();
+    // hashmap.insert(
+    //     0 as u16,
+    //     Vec![7878],
+    // );
+    // hashmap.insert(
+    //     1 as u16,
+    //     Vec![6000],
+    // );
+    //
+    // //need to have options where if we're adding for first time it's this:
+    // match hashmap.entry(key) {
+    //     Entry::Vacant(e) => e.insert(vec![token]),
+    //     Entry::Occupied(mut e) => e.get_mut().push(token),
+    // }
+    //
+    // and if we're switching it's this:
+    // ...(figure this out)
+
+    //let number_stations: u16 = file_vec.len(); //TODO implement number_stations into response
 
     let listener = TcpListener::bind(format!("{}:{}", &ip, &tcp_port))?;
     for stream in listener.incoming() {
@@ -28,9 +51,9 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
             Ok(stream) => {
                 println!("New connection: {}", &stream.peer_addr().unwrap());
                 //let stream_peer_add_copy = &stream.peer_addr().unwrap();
-                let file_vec_clone = file_vec.clone();
+                //let file_vec_clone = file_vec.clone();
                 thread::spawn(move|| {
-                    structs::handle_client(stream, &number_stations)
+                    structs::handle_client(stream, ip, &file_vec, tx, rx, active_stations)
                 });
                 //println!("connection ended with {}", &stream_peer_add_copy)
             }
