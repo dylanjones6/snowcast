@@ -207,7 +207,7 @@ pub fn handle_client (mut stream: TcpStream, ip: &Ipv4Addr,
     file_vec: Vec<String>,
     //_tx: mpsc::Sender<HashMap<u16, Vec<u16>>>,
     //_rx: mpsc::Receiver<HashMap<u16, Vec<u16>>>,
-    mut active_stations: Mutex<HashMap<u16, Vec<u16>>>) -> Result<()> {
+    active_stations: Mutex<HashMap<u16, Vec<u16>>>) -> Result<()> {
 
     let mut data = [0 as u8; 3];
     let _ = stream.read_exact(&mut data)?;
@@ -237,12 +237,20 @@ pub fn handle_client (mut stream: TcpStream, ip: &Ipv4Addr,
     let data = *parse_enum_to_arr(welcome)?;
     println!("welcome sent from server: {:?}", &data);
     let _ = stream.write_all(&data);
-    //let first_time = true;
-    
-    
+    let mut data = [0 as u8; 3];
+
+    loop {
+        thread::sleep(time::Duration::from_millis(3000));
+        println!("waiting");
+        let _ = stream.read_exact(&mut data)?;
+        println!("{}", &data[0]);
+        if data[0] == 1 { break };
+    };
+    let mut first_time = true;
     loop {
         let mut data = [0 as u8; 3];
-        stream.read_exact(&mut data)?; //TODO NEED TO AWAIT RESULT HERE
+        if first_time { } else { stream.read_exact(&mut data)?; };
+        first_time = false;
         println!("data read by server anticipating set_station: {:?}", &data);
         match parse_array_to_enum(&mut data) {
             Ok(MessageSC::SendMessageSC(
@@ -317,7 +325,7 @@ pub fn broadcast_song(song_path: &str,/* songname: String,*/ server_name: &Ipv4A
     // and writing to stream is done on a per thread basis? or split into play
     // song and broadcast functions, play_song() plays a file chunk by chunk
     // and broadcast() sends out the info to the given port
-
+    println!("Printing from broadcast_song!");
     let full_ip = format!("{}:{}", server_name, udp_port);
     let socket = UdpSocket::bind(full_ip).expect("Couldn't bind to address.");
     // 16384 bytes/second = 1024 bytes * 16 /sec  // MUST be < 1500 bytes/sec
@@ -336,6 +344,7 @@ pub fn broadcast_song(song_path: &str,/* songname: String,*/ server_name: &Ipv4A
     loop { //song loop
         let _ = file.rewind();
         'within_song: loop{
+            println!("printing each loop of song");
             match file.read_u64::<NetworkEndian>() { //read methods advance cursor so we
                                               //don't need to move positions through
                                               //the file
