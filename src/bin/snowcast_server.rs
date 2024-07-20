@@ -1,5 +1,5 @@
 use std::thread;
-use std::net::{Ipv4Addr, TcpListener};
+use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use snowcast::structs;
 //use tokio::sync::Mutex;
 //use std::sync::mpsc;
@@ -54,6 +54,7 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
                 //let stream_peer_add_copy = &stream.peer_addr().unwrap();
                 //let file_vec_clone = file_vec.clone();
                 //let (tx, rx) = mpsc::channel();
+                let stream: Mutex<TcpStream> = Mutex::new(stream);
                 let active_stations = Mutex::new(HashMap::new());
                 let file_vec_clone = file_vec.clone();
 

@@ -3,42 +3,40 @@ use std::net::{TcpStream, UdpSocket, Ipv4Addr};
 use std::io::{ErrorKind, Read, Result, Seek, Write};
 use std::fs::File;
 //use std::sync::mpsc;
-use std::sync::Mutex;
+use std::sync::{Mutex, Arc};
 use std::{thread, time};
 use byteorder::ReadBytesExt;
-
-
 //use crate::structs;
 use byteorder::{BigEndian, ByteOrder, NetworkEndian/*, ReadBytesExt, WriteBytesExt*/};
 
 
 pub struct Hello {
     //direction: Send,
-    command_type: u8, // should be == 0
-    udp_port: u16,
+    pub command_type: u8, // should be == 0
+    pub udp_port: u16,
 }
 
 pub struct SetStation {
-    command_type: u8, // should be == 1 station_number: u16,
-    station_number: u16,
+    pub command_type: u8, // should be == 1 station_number: u16,
+    pub station_number: u16,
 }
 
 #[derive(Debug)]
 pub struct Welcome {
-    reply_type: u8,
-    number_stations: u16,
+    pub reply_type: u8,
+    pub number_stations: u16,
 }
 
 pub struct Announce <'a> {
-    reply_type: u8,
-    songname_size: u8,
-    songname: &'a[u8],
+    pub reply_type: u8,
+    pub songname_size: u8,
+    pub songname: &'a[u8],
 }
 
 pub struct InvalidCommand <'a> {
-    reply_type: u8,
-    reply_string_size: u8,
-    reply_string: &'a[u8],
+    pub reply_type: u8,
+    pub reply_string_size: u8,
+    pub reply_string: &'a[u8],
 }
 
 
@@ -138,7 +136,7 @@ pub fn parse_enum_to_arr <'a> (message: MessageSC) -> Result<Box<[u8; 512]>> {
                 SendSC::SendSetStationSC(set_station) => {
                     let mut data = [0 as u8; 512];
                     data[0] = set_station.command_type;
-                    BigEndian::write_u16(&mut data[1..3], set_station.station_number);
+                    NetworkEndian::write_u16(&mut data[1..3], set_station.station_number);
                     return Ok(data.into())
                 }
             }
@@ -148,7 +146,7 @@ pub fn parse_enum_to_arr <'a> (message: MessageSC) -> Result<Box<[u8; 512]>> {
                 ReplySC::ReplyWelcomeSC(welcome) => {
                     let mut data = [0 as u8; 512];
                     data[0] = welcome.reply_type;
-                    BigEndian::write_u16(&mut data[1..3], welcome.number_stations);
+                    NetworkEndian::write_u16(&mut data[1..3], welcome.number_stations);
                     return Ok(data.into())
                 }
                 ReplySC::ReplyAnnounceSC(announce) => {
@@ -175,81 +173,40 @@ pub fn parse_enum_to_arr <'a> (message: MessageSC) -> Result<Box<[u8; 512]>> {
     }
 }
 
-pub fn initiate_handshake(mut stream: TcpStream, udp_port: &u16) -> Result<TcpStream> {
-
-    let hello = MessageSC::SendMessageSC(SendSC::SendHelloSC(
-                    Hello { command_type: 0, udp_port: *udp_port,}
-    ));
-    let data = *parse_enum_to_arr(hello).unwrap();
-    println!("printing data sent from client in handshake: {:?}", &data);
-    let _ = stream.write_all(&data);
-    println!("Hello sent, awaiting response.");
-
-    let mut data = [0 as u8; 3];
-    let _n_bytes = stream.read_exact(&mut data)?;
-    println!("data read by client following hello send: {:?}", &data);
-    let message = if let Ok(
-                            MessageSC::ReplyMessageSC(
-                                ReplySC::ReplyWelcomeSC(
-                                    welcome))) = parse_array_to_enum(&data) {
-        welcome
-    } else {
-        panic!("Uh oh! Received something other than a welcome message.");
-    };
-
-    println!("Welcome to Snowcast! The server has {} stations.",
-              message.number_stations);
-    Ok(stream)
-
+pub fn initiate_handshake(stream: &Mutex<TcpStream>, udp_port: &u16) -> Result<Welcome> {
+    let _ = send_hello(stream, udp_port);
+    receive_welcome(stream)
 }
 
-pub fn handle_client (mut stream: TcpStream, ip: &Ipv4Addr,
+pub fn handle_client (stream: Mutex<TcpStream>, ip: &Ipv4Addr,
     file_vec: Vec<String>,
     //_tx: mpsc::Sender<HashMap<u16, Vec<u16>>>,
     //_rx: mpsc::Receiver<HashMap<u16, Vec<u16>>>,
     active_stations: Mutex<HashMap<u16, Vec<u16>>>) -> Result<()> {
 
-    let mut data = [0 as u8; 3];
-    let _ = stream.read_exact(&mut data)?;
-    println!("data read by server at top of handle_client: {:?}", &data);
-    let file_vec_clone = file_vec.clone();
-    let number_stations: u16 = file_vec_clone.len().try_into().unwrap();
+    let hello: Hello = receive_hello(&stream)?;
 
-    let message = match parse_array_to_enum(&data) {
-        Ok(MessageSC::SendMessageSC(
-            SendSC::SendHelloSC(hello))) => {
-            hello
-        }
-        Ok(_) => {
-            panic!("Wrong kind of message!");
-        }
-        Err(error) => {
-            panic!("Error parsing array: {}", error);
-        }
-    };
-    println!("printing data from client: {:?}", &data);
+    //let file_vec_clone = file_vec.clone();
+    let number_stations: u16 = file_vec.len().try_into().unwrap();
 
-    let welcome = MessageSC::ReplyMessageSC(ReplySC::ReplyWelcomeSC(
-                    Welcome {
-                        reply_type: 2,
-                        number_stations, //TODO fn returns number_stations
-    }));
-    let data = *parse_enum_to_arr(welcome)?;
-    println!("welcome sent from server: {:?}", &data);
-    let _ = stream.write_all(&data);
-    let mut data = [0 as u8; 3];
+    let _ = send_welcome(&stream, number_stations);
 
-    loop {
-        thread::sleep(time::Duration::from_millis(3000));
+    let mut data = [0 as u8; 512];
+
+    data = loop {
+        //let stream = stream.lock().unwrap();
+        thread::sleep(time::Duration::from_millis(1500));
         println!("waiting");
-        let _ = stream.read_exact(&mut data)?;
-        println!("{}", &data[0]);
-        if data[0] == 1 { break };
+        let _ = stream.lock().unwrap().read_exact(&mut data)?;
+        println!("data read in loop: {:?}", &data);
+        if data[0] == 1 { break data }
     };
     let mut first_time = true;
     loop {
-        let mut data = [0 as u8; 3];
-        if first_time { } else { stream.read_exact(&mut data)?; };
+        if first_time { } else {
+            data = [0 as u8; 512];
+            stream.lock().unwrap().read_exact(&mut data)?;
+        };
         first_time = false;
         println!("data read by server anticipating set_station: {:?}", &data);
         match parse_array_to_enum(&mut data) {
@@ -278,19 +235,19 @@ pub fn handle_client (mut stream: TcpStream, ip: &Ipv4Addr,
                 //     }
 
                 // }
-                let key = match active_stations.lock().unwrap().iter().find_map(|(key, &ref vec)| if vec.contains(&message.udp_port) { Some(key) } else { None }) {
+                let key = match active_stations.lock().unwrap().iter().find_map(|(key, &ref vec)| if vec.contains(&hello.udp_port) { Some(key) } else { None }) {
                     Some(old_key) => old_key.clone(),
                     None => set_station.station_number.clone(),
                 };
                 match active_stations.lock().unwrap().entry(key) {
                     Entry::Vacant(entry) => {
-                        entry.insert(vec![message.udp_port]);
+                        entry.insert(vec![hello.udp_port]);
                     }
                     Entry::Occupied(mut entry) => {
-                        entry.get_mut().push(message.udp_port);
+                        entry.get_mut().push(hello.udp_port);
                     }
                 }
-                let _ = broadcast_song(&file_vec[set_station.station_number as usize], ip, message.udp_port);
+                let _ = broadcast_song(&file_vec[set_station.station_number as usize], ip, hello.udp_port);
                 
 
                 //set_station.station_number
@@ -327,7 +284,8 @@ pub fn broadcast_song(song_path: &str,/* songname: String,*/ server_name: &Ipv4A
     // and broadcast() sends out the info to the given port
     println!("Printing from broadcast_song!");
     let full_ip = format!("{}:{}", server_name, udp_port);
-    let socket = UdpSocket::bind(full_ip).expect("Couldn't bind to address.");
+    let socket = UdpSocket::bind("127.0.0.1:7878").expect("Couldn't bind to address.");
+    let _ = socket.connect(full_ip);
     // 16384 bytes/second = 1024 bytes * 16 /sec  // MUST be < 1500 bytes/sec
     // 1024 bytes every .0625 sec
     //
@@ -342,9 +300,10 @@ pub fn broadcast_song(song_path: &str,/* songname: String,*/ server_name: &Ipv4A
     let time_gap = time::Duration::from_nanos(time_gap_num);
     let smaller_time_gap = time::Duration::from_nanos(time_gap_num/8);
     loop { //song loop
+        println!("starting song");
         let _ = file.rewind();
         'within_song: loop{
-            println!("printing each loop of song");
+            //println!("printing each loop of song");
             match file.read_u64::<NetworkEndian>() { //read methods advance cursor so we
                                               //don't need to move positions through
                                               //the file
@@ -389,7 +348,7 @@ pub fn broadcast_song(song_path: &str,/* songname: String,*/ server_name: &Ipv4A
     }
 }
 
-pub fn set_station(mut stream: TcpStream, station_number: u16) -> Result<TcpStream> {
+pub fn set_station(stream: &Mutex<TcpStream>, station_number: u16) -> Result<()> {
     let set_station = MessageSC::SendMessageSC(
         SendSC::SendSetStationSC(
             SetStation {
@@ -398,13 +357,80 @@ pub fn set_station(mut stream: TcpStream, station_number: u16) -> Result<TcpStre
     }));
     let data = *parse_enum_to_arr(set_station)?;
     println!("data sent from set_station: {:?}", &data);
-    match stream.write_all(&data) {
+    match stream.lock().unwrap().write_all(&data) {
         Ok(_) => {
-            return Ok(stream)
+            let _ = stream.lock().unwrap().flush();
+            return Ok(())
         }
         Err(error) => {
             panic!("Error caused while set_station wrote to stream: {}",
                 error);
         }
     }
+}
+
+fn receive_hello(stream: &Mutex<TcpStream>) -> Result<Hello> {
+    let mut data = [0 as u8; 512];
+    let _ = stream.lock().unwrap().read_exact(&mut data)?;
+    println!("data read by server at top of handle_client: {:?}", &data);
+
+    let hello = match parse_array_to_enum(&data) {
+        Ok(MessageSC::SendMessageSC(
+            SendSC::SendHelloSC(hello))) => {
+            hello
+        }
+        Ok(_) => {
+            panic!("Wrong kind of message!");
+        }
+        Err(error) => {
+            panic!("Error parsing array: {}", error);
+        }
+    };
+    Ok(hello)
+}
+
+fn send_welcome(stream: &Mutex<TcpStream>, number_stations: u16) -> Result<()> {
+    let welcome = MessageSC::ReplyMessageSC(ReplySC::ReplyWelcomeSC(
+                    Welcome {
+                        reply_type: 2,
+                        number_stations, //TODO fn returns number_stations
+    }));
+    let data = *parse_enum_to_arr(welcome)?;
+    println!("welcome sent from server: {:?}", &data);
+    let _ = stream.lock().unwrap().write_all(&data);
+    stream.lock().unwrap().flush();
+
+    Ok(())
+}
+
+fn send_hello(stream: &Mutex<TcpStream>, udp_port: &u16) -> Result<()>{
+    let hello = MessageSC::SendMessageSC(SendSC::SendHelloSC(
+                    Hello { command_type: 0, udp_port: *udp_port,}
+    ));
+    let data = *parse_enum_to_arr(hello).unwrap();
+    println!("printing data sent from client in handshake: {:?}", &data);
+    let _ = stream.lock().unwrap().write_all(&data);
+    stream.lock().unwrap().flush();
+
+    println!("Hello sent, awaiting response.");
+
+    Ok(())
+}
+
+fn receive_welcome(stream: &Mutex<TcpStream>) -> Result<Welcome> {
+    let mut data = [0 as u8; 512];
+    let _n_bytes = stream.lock().unwrap().read_exact(&mut data)?;
+    println!("data read by client following hello send: {:?}", &data);
+    let welcome = if let Ok(
+                            MessageSC::ReplyMessageSC(
+                                ReplySC::ReplyWelcomeSC(
+                                    welcome))) = parse_array_to_enum(&data) {
+        welcome
+    } else {
+        panic!("Uh oh! Received something other than a welcome message.");
+    };
+
+    println!("Welcome to Snowcast! The server has {} stations.",
+              welcome.number_stations);
+    Ok(welcome)
 }

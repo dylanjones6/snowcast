@@ -1,6 +1,7 @@
 use std::env;
 use std::io::/*{Read, Write, */Result/*}*/;
 use std::net::{Ipv4Addr, TcpStream};
+use std::sync::Mutex;
 use snowcast::structs::{initiate_handshake, set_station};
 
 fn main() -> Result<()> {
@@ -49,10 +50,11 @@ fn main() -> Result<()> {
     println!("test");
 
     let mut stream = TcpStream::connect(&full_address)?;// {
+    let stream = Mutex::new(stream);
 
     println!("Connected to server at {}", &full_address);
 
-    stream = initiate_handshake(stream, &udp_port)?;
+    let welcome = initiate_handshake(&stream, &udp_port)?;
 
     loop {
         println!("What station would you like to select? If you're done, \
@@ -64,13 +66,13 @@ fn main() -> Result<()> {
         let station_number = if input.len() == 1 && input[0] == "q" {
             std::process::exit(1);
         } else if input.len() != 1 || input[0].parse::<u16>().is_err() {
-            eprintln!("Pick a station from 0 to 65535 or quit with \"q\".");
+            eprintln!("Pick a station from 0 to {} or quit with \"q\".", welcome.number_stations);
             continue// 'input
         } else {
             input[0].parse::<u16>().unwrap()
         };
 
-        stream = set_station(stream, station_number)?;
+        set_station(&stream, station_number)?;
         println!("selected station {}", &station_number);
         //structs::SetStation(&station_number) // uncomment this at some point!
         //break stationNum
