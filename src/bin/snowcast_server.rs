@@ -5,7 +5,7 @@ use snowcast::structs::{self, play_all_songs, Station};
 //use tokio::sync::Mutex;
 //use std::sync::mpsc;
 use std::sync::{Mutex, Arc};
-use std::collections::{hash_map, HashMap};
+//use std::collections::{hash_map, HashMap};
 
 
 fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
@@ -28,11 +28,14 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
     let file_vec: Vec<String> = (&args[2..]).to_vec();
 
     let mut station_vec = Vec::new();
-    for file_path in file_vec {
-        station_vec.push(Station::new(file_path, Arc::new(Mutex::new(Vec::new()))));
+    for file_path in &file_vec {
+        station_vec.push(Station::new(file_path.to_owned(), Arc::new(Mutex::new(Vec::new()))));
     }
+    //let station_vec: Arc<Mutex<Vec<Station>>> = Arc::new(Mutex::new(station_vec));
+    let station_vec_clone = station_vec.clone();
+    //let station_vec_clone = station_vec
 
-    play_all_songs(station_vec, server_name);
+    thread::spawn(move|| play_all_songs(station_vec_clone, server_name));
 
     //let (tx, rx) = mpsc::channel();
     // hashmap.insert(
@@ -54,7 +57,7 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
     // ...(figure this out)
 
     //let number_stations: u16 = file_vec.len(); //TODO implement number_stations into response
-
+    println!("listening test");
     let listener = TcpListener::bind(format!("{}:{}", &server_name, &tcp_port))?;
     for stream in listener.incoming() {
         match stream {
@@ -66,9 +69,11 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
                 let stream: Mutex<TcpStream> = Mutex::new(stream);
                 //let active_stations = Arc::new(Mutex::new(HashMap::new()));
                 let file_vec_clone = file_vec.clone();
+                let station_vec_clone = station_vec.clone();
+                //let station_vec_clone = station_vec.clone();
 
                 thread::spawn(move|| {
-                    structs::handle_client(stream, server_name, file_vec_clone, &mut station_vec)
+                    structs::handle_client(stream, server_name, file_vec_clone, station_vec_clone)
                 });
                 //println!("connection ended with {}", &stream_peer_add_copy)
             }

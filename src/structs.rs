@@ -47,12 +47,22 @@ pub struct Station {
 impl Station {
     pub fn new(song_path: String, udp_ports: Arc<Mutex<Vec<u16>>>) -> Self {
         Self {
-            song_path,
+            song_path, 
             udp_ports,
         }
     }
     pub fn add_udp_port(&self, new_udp_port: u16) {
-        &self.udp_ports.lock().unwrap().push(new_udp_port);
+        let _ = &self.udp_ports.lock().unwrap().push(new_udp_port);
+    }
+}
+
+impl Clone for Station {
+    fn clone(&self) -> Self {
+        Self {
+            song_path: self.song_path.clone(),
+            udp_ports: self.udp_ports.clone(),  // Clone fields that require it
+            // Clone other fields similarly
+        }
     }
 }
 
@@ -202,7 +212,7 @@ pub fn handle_client (stream: Mutex<TcpStream>,
     file_vec: Vec<String>,
     //_tx: mpsc::Sender<HashMap<u16, Vec<u16>>>,
     //_rx: mpsc::Receiver<HashMap<u16, Vec<u16>>>,
-    station_vec: &mut Vec<Station>) -> Result<()> {
+    station_vec: Vec<Station>) -> Result<()> {
 
     let hello: Hello = receive_hello(&stream)?;
 
@@ -214,7 +224,9 @@ pub fn handle_client (stream: Mutex<TcpStream>,
     //let mut data = [0 as u8; 512];
 
     loop {
-        receive_set_station(&stream, &hello, station_vec);
+
+        //let station_vec_clone = station_vec.clone();
+        let _ = receive_set_station(&stream, &hello, station_vec.clone());
     }
 
 
@@ -333,7 +345,7 @@ fn receive_set_station(stream: &Mutex<TcpStream>,
                        //active_stations: Arc<Mutex<HashMap<u16, Vec<u16>>>>,
                        hello: &Hello,
                        //file_vec: Vec<String>,
-                       station_vec: &mut Vec<Station>,
+                       station_vec: Vec<Station>,
                        /*ip: &Ipv4Addr*/) -> Result<()> {
     let mut data = [0 as u8; 512];
 
@@ -345,10 +357,19 @@ fn receive_set_station(stream: &Mutex<TcpStream>,
             //station_vec.insert(set_station.station_number, )
             //station_vec.iter().find_map(|song| )
             //station_vec[set_station.station_number] = 
-            if let Some(station) = station_vec.get_mut(set_station.station_number as usize) {
-                println!("Added port to station_vec");
+            println!("hey you're close!");
+            if let Some(station) = station_vec.get(set_station.station_number as usize) {
+                println!("id be amazed if this printed");
                 station.udp_ports.lock().unwrap().push(hello.udp_port);
             }
+            //let mut station_vec_unlocked = station_vec.lock().unwrap();
+            //let station = station_vec_unlocked.get_mut(set_station.station_number as usize).unwrap();
+            println!("added port to station_vec");
+            //station.add_udp_port(hello.udp_port);
+            // if let Some(station) = station_vec.lock().unwrap().get_mut(set_station.station_number as usize) {
+            //     println!("Added port to station_vec");
+            //     station.udp_ports.lock().unwrap().push(hello.udp_port);
+            // } 
             
             // let key = match active_stations.lock()
             //                                .unwrap()
@@ -510,7 +531,7 @@ fn receive_set_station(stream: &Mutex<TcpStream>,
 // }
 
 pub fn play_all_songs(station_vec: Vec<Station>, server_name: Ipv4Addr) {
-    for song in station_vec {
+    for song in station_vec.iter() {
         play_song_looping(&song, server_name);
     }
 }
@@ -519,11 +540,11 @@ fn play_song_looping(song: &Station, server_name: Ipv4Addr) {
     loop {
         if song.udp_ports.lock().unwrap().is_empty() {
             println!("no udp_ports yet for: {}", &song.song_path);
-            thread::sleep(time::Duration::from_millis(500));
+            //thread::sleep(time::Duration::from_millis(500));
             // wait and see if arc mutex will contain values next time
         } else {
             for udp_port in song.udp_ports.lock().unwrap().iter() {
-                let song_path_clone = song.song_path.clone();
+                let song_path_clone = song.song_path.to_owned();
                 let server_name_clone = server_name.clone();
                 let udp_port_clone = udp_port.clone();
                 thread::spawn(move||play_to_udp_once(song_path_clone,
@@ -531,6 +552,7 @@ fn play_song_looping(song: &Station, server_name: Ipv4Addr) {
                                          udp_port_clone));
             }
         }
+        thread::sleep(time::Duration::from_millis(500));
     }
 }
 
