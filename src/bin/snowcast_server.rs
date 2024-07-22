@@ -3,7 +3,7 @@ use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use snowcast::structs;
 //use tokio::sync::Mutex;
 //use std::sync::mpsc;
-use std::sync::Mutex;
+use std::sync::{Mutex, Arc};
 use std::collections::{hash_map, HashMap};
 
 fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
@@ -55,7 +55,7 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
                 //let file_vec_clone = file_vec.clone();
                 //let (tx, rx) = mpsc::channel();
                 let stream: Mutex<TcpStream> = Mutex::new(stream);
-                let active_stations = Mutex::new(HashMap::new());
+                let active_stations = Arc::new(Mutex::new(HashMap::new()));
                 let file_vec_clone = file_vec.clone();
 
                 thread::spawn(move|| {
