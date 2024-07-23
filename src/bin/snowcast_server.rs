@@ -5,27 +5,40 @@ use snowcast::structs::{self, play_all_songs, Station};
 //use tokio::sync::Mutex;
 //use std::sync::mpsc;
 use std::sync::{Mutex, Arc};
+use std::io::Result;
+use std::io::ErrorKind;
 //use std::collections::{hash_map, HashMap};
 
-
-fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
-    let server_name = "127.0.0.1".parse::<Ipv4Addr>().unwrap();
-    //let tcp_port = "16800";
-    let args: Vec<String> = std::env::args().collect();
+/// takes no arguments and uses std::env::args() to collect tcp_port and file
+/// info. returns a tuple containing (tcp_port: u16, files: Vec<&str>)
+fn get_args() -> Result<(u16, Vec<String>), > {
+    let args: Vec<String> = std::env::args().into_iter().collect();
+    //let args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
 
     if args.len() < 3 {
         eprintln!("Usage: ./snowcast_server <tcp_port> <file0> [file1] [file2] \
                    ...");
-        std::process::exit(1);
+        return Err(ErrorKind::InvalidData.into())
+        //std::process::exit(1);
     }
-//let tcp_port = if args[1].parse::<u16>().is_ok() { &args[1]
     let tcp_port = if let Ok(port) = args[1].parse::<u16>() {
         port
     } else {
         eprintln!("The first argument must be an int from 0 to 65535");
-        std::process::exit(1);
+        return Err(ErrorKind::InvalidInput.into())
+        //std::process::exit(1);
     };
-    let file_vec: Vec<String> = (&args[2..]).to_vec();
+    let file_vec: Vec<String> = args[2..].to_vec();
+    //let file_vec: Vec<&str> = args[2..].to_vec();
+
+    Ok((tcp_port, file_vec))
+}
+
+fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
+    let (tcp_port, file_vec) = get_args()?;
+
+    let server_name = "127.0.0.1".parse::<Ipv4Addr>().unwrap();
+    //let tcp_port = "16800";
 
     let mut station_vec = Vec::new();
     for file_path in &file_vec {

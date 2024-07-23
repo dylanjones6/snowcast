@@ -4,6 +4,7 @@ use std::io::{ErrorKind, Read, Result, Seek, Write};
 use std::fs::File;
 //use std::sync::mpsc;
 use std::sync::{Mutex, Arc};
+//use std::thread::Result;
 use std::{thread, time};
 //use crate::structs;
 use byteorder::{BigEndian, ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
@@ -531,28 +532,42 @@ fn receive_set_station(stream: &Mutex<TcpStream>,
 // }
 
 pub fn play_all_songs(station_vec: Vec<Station>, server_name: Ipv4Addr) {
-    for song in station_vec.iter() {
-        play_song_looping(&song, server_name);
+    for song in station_vec {
+        thread::spawn(move||play_song_looping2(song.clone(), server_name));
     }
 }
 
 fn play_song_looping(song: &Station, server_name: Ipv4Addr) {
+        loop {
+            if song.udp_ports.lock().unwrap().is_empty() {
+                println!("no udp_ports yet for: {}", &song.song_path);
+                //thread::sleep(time::Duration::from_millis(500));
+                // wait and see if arc mutex will contain values next time
+            } else {
+                for udp_port in song.udp_ports.lock().unwrap().iter() {
+                    let song_path_clone = song.song_path.to_owned();
+                    let server_name_clone = server_name.clone();
+                    let udp_port_clone = udp_port.clone();
+                    thread::spawn(move||play_to_udp_once(song_path_clone,
+                                             server_name_clone,
+                                             udp_port_clone));
+                }
+            }
+            thread::sleep(time::Duration::from_millis(500));
+        }
+}
+
+fn play_song_looping2 (song: Station, server_name: Ipv4Addr) -> Result<()> {
     loop {
         if song.udp_ports.lock().unwrap().is_empty() {
             println!("no udp_ports yet for: {}", &song.song_path);
-            //thread::sleep(time::Duration::from_millis(500));
+            thread::sleep(time::Duration::from_millis(500));
             // wait and see if arc mutex will contain values next time
         } else {
-            for udp_port in song.udp_ports.lock().unwrap().iter() {
-                let song_path_clone = song.song_path.to_owned();
-                let server_name_clone = server_name.clone();
-                let udp_port_clone = udp_port.clone();
-                thread::spawn(move||play_to_udp_once(song_path_clone,
-                                         server_name_clone,
-                                         udp_port_clone));
-            }
+            let song_clone = song.clone();
+            let server_name_clone = server_name.clone();
+            thread::spawn(move|| play_song(song_clone, server_name_clone));
         }
-        thread::sleep(time::Duration::from_millis(500));
     }
 }
 
@@ -592,6 +607,54 @@ fn play_to_udp_once(song_path: String,
     }
     Ok(())
 }
+
+
+
+fn play_song(song: Station, server_name: Ipv4Addr) -> Result<()> {
+    let mut file = File::open(&song.song_path)?;
+    let time_gap = time::Duration::from_micros(62500);
+    loop {
+        let mut song_buf = [0 as u8; 1024];
+        match file.read_exact(&mut song_buf) {
+            Ok(_) => {}, 
+            Err(error) => match error.kind() {
+                ErrorKind::UnexpectedEof => {
+                    //panic!("testing to see if this is the right error");
+                    break
+                }
+                _ => {
+                    panic!("unexpected error while reading {}\
+                    \nerror thrown: {}", &song.song_path, error);
+                }
+            }
+        }
+        for udp_port in song.udp_ports.lock().unwrap().iter() {
+            let socket: UdpSocket = UdpSocket::bind("127.0.0.1:7878")?;
+            let _ = socket.connect(format!("{}:{}", &server_name, &udp_port));
+            thread::sleep(time::Duration::from_millis(10));
+            let _ = socket.send(&song_buf);
+        }
+        thread::sleep(time_gap);
+    }
+    Ok(())
+}
+
+/// Reads 1024 byte chunk of song and then returns result with 1024 byte array.
+/// No time gap implemented in this function.
+/// Separates UnexpectedEof error to note significance of EOF error for later
+/// matching to note need to repeat song
+fn read_song_to_buf(mut file: File) -> Result<[u8; 1024]> {
+    let mut buf = [0 as u8; 1024];
+    match file.read_exact(&mut buf) {
+        Ok(_) => Ok(buf),
+        Err(error) => Err(error),
+    }
+}
+
+//fn send_song_to_socket(song_buf: &[u8; 1024],
+//                       connected_socket: UdpSocket) -> Result<usize> {
+//    connected_socket.send(song_buf)
+//}
 
 
 // fn play_to_udp(song_path: String, server_name: Ipv4Addr, udp_port: Option<u16>) -> Result<()> {
