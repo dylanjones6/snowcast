@@ -1,12 +1,14 @@
 use std::ops::Not;
 use std::thread;
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
-use snowcast::structs::{self, play_all_songs, Station};
+use snowcast::structs::{self, play_loop, Station};
 //use tokio::sync::Mutex;
 //use std::sync::mpsc;
 use std::sync::{Mutex, Arc};
 use std::io::Result;
 use std::io::ErrorKind;
+use std::fs::File;
+
 //use std::collections::{hash_map, HashMap};
 
 /// takes no arguments and uses std::env::args() to collect tcp_port and file
@@ -39,16 +41,21 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
 
     let server_name = "127.0.0.1".parse::<Ipv4Addr>().unwrap();
     //let tcp_port = "16800";
+    let mut open_file_vec = Vec::new();
 
     let mut station_vec = Vec::new();
     for file_path in &file_vec {
         station_vec.push(Station::new(file_path.to_owned(), Arc::new(Mutex::new(Vec::new()))));
+        open_file_vec.push(File::open(file_path).unwrap());
     }
+
+    let open_file_vec = Arc::new(Mutex::new(open_file_vec));
     //let station_vec: Arc<Mutex<Vec<Station>>> = Arc::new(Mutex::new(station_vec));
     let station_vec_clone = station_vec.clone();
     //let station_vec_clone = station_vec
 
-    thread::spawn(move|| play_all_songs(station_vec_clone, server_name));
+
+    thread::spawn(move|| play_loop(station_vec_clone, server_name, open_file_vec));
 
     //let (tx, rx) = mpsc::channel();
     // hashmap.insert(

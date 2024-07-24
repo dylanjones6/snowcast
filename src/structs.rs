@@ -2,6 +2,7 @@ use std::collections::{HashMap, hash_map::Entry};
 use std::net::{TcpStream, UdpSocket, Ipv4Addr};
 use std::io::{ErrorKind, Read, Result, Seek, Write};
 use std::fs::File;
+use std::ptr::read;
 //use std::sync::mpsc;
 use std::sync::{Mutex, Arc};
 //use std::thread::Result;
@@ -628,6 +629,7 @@ fn play_song(song: Station, server_name: Ipv4Addr) -> Result<()> {
                 }
             }
         }
+        // BIG TODO need to send all songs in single for loop iterating through udps
         for udp_port in song.udp_ports.lock().unwrap().iter() {
             let socket: UdpSocket = UdpSocket::bind("127.0.0.1:7878")?;
             let _ = socket.connect(format!("{}:{}", &server_name, &udp_port));
@@ -639,15 +641,65 @@ fn play_song(song: Station, server_name: Ipv4Addr) -> Result<()> {
     Ok(())
 }
 
+pub fn play_loop(station_vec: Vec<Station>,
+              server_name: Ipv4Addr,
+              open_file_vec: Arc<Mutex<Vec<File>>>) -> Result<()> {
+    loop {
+        play_all_songs_chunk(station_vec.clone(), server_name, open_file_vec.clone());
+    }
+
+}
+
+fn play_all_songs_chunk(station_vec: Vec<Station>,
+                        server_name: Ipv4Addr,
+                        open_file_vec: Arc<Mutex<Vec<File>>>) -> Result<()> {
+    let time_gap = time::Duration::from_micros(62500);
+    //let smaller_time_gap = time::Duration::from_millis(5);
+    for (i, song) in station_vec.iter().enumerate() {
+        //let file = File::open(song.song_path)?;
+        let mut song_buf = [0 as u8; 1024];
+        let mut current_file = open_file_vec.lock().unwrap();
+        let current_file = current_file.get_mut(i).unwrap();
+        match current_file.read_exact(&mut song_buf) {
+            Ok(_) => {},
+            Err(error) => match error.kind() {
+                ErrorKind::UnexpectedEof => {
+                    let _ = current_file.rewind();
+                }
+                _ => {
+                    panic!("some other error");
+                }
+            }
+
+        };
+        for udp_port in song.udp_ports.lock().unwrap().iter() {
+            let socket: UdpSocket = UdpSocket::bind("127.0.0.1:7878")?;
+            let _ = socket.connect(format!("{}:{}", &server_name, &udp_port));
+            let _ = socket.send(&song_buf);
+            //thread::sleep(smaller_time_gap);
+        }
+    }
+    thread::sleep(time_gap);
+    Ok(())
+}
+
+//need a sender thread that iterates through songs and 
+
 /// Reads 1024 byte chunk of song and then returns result with 1024 byte array.
 /// No time gap implemented in this function.
-/// Separates UnexpectedEof error to note significance of EOF error for later
-/// matching to note need to repeat song
-fn read_song_to_buf(mut file: File) -> Result<[u8; 1024]> {
+fn read_song_to_buf(mut file: &File) -> Result<[u8; 1024]> {
     let mut buf = [0 as u8; 1024];
     match file.read_exact(&mut buf) {
         Ok(_) => Ok(buf),
         Err(error) => Err(error),
+        // Err(error) => {
+        //     match error.kind() {
+        //         ErrorKind::UnexpectedEof => {
+        //             Ok(buf)
+        //         }
+        //         _ => Err(error),
+        //     }
+        // }
     }
 }
 
