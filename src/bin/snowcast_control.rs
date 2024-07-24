@@ -1,5 +1,5 @@
 use std::env;
-use std::io::/*{Read, Write, */Result/*}*/;
+use std::io::Result;
 use std::net::{Ipv4Addr, TcpStream};
 use std::sync::Mutex;
 use snowcast::structs::{initiate_handshake, set_station};
@@ -40,16 +40,11 @@ fn main() -> Result<()> {
                 from 0 to 65535");
     };
 
-
-    // let server_name = &args[1]; // TODO IMPLEMENT INPUT CHECKS!!!!
-    // let server_port = &args[2];
-    // let udp_port = &args[3];
-    //
     let full_address = format!("{}:{}", server_name, server_port);
     println!("{}", &full_address);
     println!("test");
 
-    let mut stream = TcpStream::connect(&full_address)?;// {
+    let stream = TcpStream::connect(&full_address)?;// {
     let stream = Mutex::new(stream);
 
     println!("Connected to server at {}", &full_address);
@@ -74,9 +69,6 @@ fn main() -> Result<()> {
 
         set_station(&stream, station_number)?;
         println!("selected station {}", &station_number);
-        //structs::SetStation(&station_number) // uncomment this at some point!
-        //break stationNum
-        //if stationNum.//EXISTS!
     };
 }
 

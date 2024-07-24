@@ -1,15 +1,10 @@
-use std::ops::Not;
 use std::thread;
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use snowcast::structs::{self, play_loop, Station};
-//use tokio::sync::Mutex;
-//use std::sync::mpsc;
 use std::sync::{Mutex, Arc};
 use std::io::Result;
 use std::io::ErrorKind;
 use std::fs::File;
-
-//use std::collections::{hash_map, HashMap};
 
 /// takes no arguments and uses std::env::args() to collect tcp_port and file
 /// info. returns a tuple containing (tcp_port: u16, files: Vec<&str>)
@@ -57,24 +52,6 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
 
     thread::spawn(move|| play_loop(station_vec_clone, server_name, open_file_vec));
 
-    //let (tx, rx) = mpsc::channel();
-    // hashmap.insert(
-    //     0 as u16,
-    //     Vec![7878],
-    // );
-    // hashmap.insert(
-    //     1 as u16,
-    //     Vec![6000],
-    // );
-    //
-    // //need to have options where if we're adding for first time it's this:
-    // match hashmap.entry(key) {
-    //     Entry::Vacant(e) => e.insert(vec![token]),
-    //     Entry::Occupied(mut e) => e.get_mut().push(token),
-    // }
-    //
-    // and if we're switching it's this:
-    // ...(figure this out)
 
     //let number_stations: u16 = file_vec.len(); //TODO implement number_stations into response
     println!("listening test");
