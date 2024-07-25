@@ -18,24 +18,25 @@ pub struct SetStation {
     pub station_number: u16,
 }
 
-#[derive(Debug)]
 pub struct Welcome {
     pub reply_type: u8,
     pub number_stations: u16,
 }
 
-pub struct Announce <'a> {
+pub struct Announce {
     pub reply_type: u8,
     pub songname_size: u8,
-    pub songname: &'a[u8],
+    pub songname: [u8; 256],
 }
 
-pub struct InvalidCommand <'a> {
+pub struct InvalidCommand {
     pub reply_type: u8,
     pub reply_string_size: u8,
-    pub reply_string: &'a[u8],
+    pub reply_string: [u8; 256],
 }
 
+//gotta rewrite receive to use array or something not pattern matching
+#[derive(Debug)]
 pub struct Station {
     pub song_path: String,
     pub udp_ports: Arc<Mutex<Vec<u16>>>,
@@ -64,9 +65,9 @@ impl Clone for Station {
     }
 }
 
-pub enum MessageSC <'a> {
+pub enum MessageSC {
     SendMessageSC(SendSC),
-    ReplyMessageSC(ReplySC <'a>),
+    ReplyMessageSC(ReplySC),
 }
 
 // using ...SC naming scheme bc of collision with Send trait
@@ -75,14 +76,13 @@ pub enum SendSC {
     SendSetStationSC(SetStation),
 }
 
-pub enum ReplySC <'a> {
+pub enum ReplySC {
     ReplyWelcomeSC(Welcome),
-    ReplyAnnounceSC(Announce <'a>),
-    ReplyInvalidCommandSC(InvalidCommand <'a>),
+    ReplyAnnounceSC(Announce),
+    ReplyInvalidCommandSC(InvalidCommand),
 }
 
-
-pub fn parse_array_to_enum (data: &[u8]) -> Result<MessageSC>  {
+pub fn parse_array_to_enum(data: [u8; 258]) -> Result<MessageSC>  {
     let second_u16: u16 = NetworkEndian::read_u16(&data[1..3]); //used for first
                                                                 //3 cases
     match &data[0] {
@@ -97,9 +97,10 @@ pub fn parse_array_to_enum (data: &[u8]) -> Result<MessageSC>  {
         })))}
         1 => {
             // SetStation
-            Ok( MessageSC::SendMessageSC( SendSC::SendSetStationSC(
+            Ok( MessageSC::SendMessageSC(
+                    SendSC::SendSetStationSC(
                         SetStation {
-                            command_type: 0,
+                            command_type: 1,
                             station_number: second_u16 
         })))}
         2 => {
@@ -113,23 +114,27 @@ pub fn parse_array_to_enum (data: &[u8]) -> Result<MessageSC>  {
         })))}
         3 => {
             // Announce
+            let mut songname_data = [0 as u8; 256];
+            songname_data.copy_from_slice(&data[2..]);
             Ok(
                 MessageSC::ReplyMessageSC(
                     ReplySC::ReplyAnnounceSC(
                         Announce {
                             reply_type: 3,
                             songname_size: data[1],
-                            songname: &data[2..]
+                            songname: songname_data,
         })))}
         4 => {
             // InvalidCommand
+            let mut reply_string_data = [0 as u8; 256];
+            reply_string_data.copy_from_slice(&data[2..]);
             Ok(
                 MessageSC::ReplyMessageSC(
                     ReplySC::ReplyInvalidCommandSC(
                         InvalidCommand {
                             reply_type: 4,
                             reply_string_size: data[1],
-                            reply_string: &data[2..]
+                            reply_string: reply_string_data,
         })))}
         _ => {
             //Err(())
@@ -142,21 +147,21 @@ pub fn parse_array_to_enum (data: &[u8]) -> Result<MessageSC>  {
 }
 
 
-pub fn parse_enum_to_arr <'a> (message: MessageSC) -> Result<Box<[u8; 512]>> {
+pub fn parse_enum_to_arr <'a> (message: MessageSC) -> Result<Box<[u8; 258]>> {
     match message {
         MessageSC::SendMessageSC(send) => {
             //send::<SendHello, SendSetStation>.command_type; // use traits instead
             match send {
                 SendSC::SendHelloSC(hello) => {
                     // //let mut data = [hello.command_type, hello.udp_port.to_be_bytes().iter()];
-                    let mut data = [0 as u8; 512];
+                    let mut data = [0 as u8; 258];
                     data[0] = hello.command_type;
                     NetworkEndian::write_u16(&mut data[1..3], hello.udp_port);
                     //data[1..3].copy_from_slice(&hello.udp_port.to_be_bytes());
                     Ok(data.into())
                 }
                 SendSC::SendSetStationSC(set_station) => {
-                    let mut data = [0 as u8; 512];
+                    let mut data = [0 as u8; 258];
                     data[0] = set_station.command_type;
                     NetworkEndian::write_u16(&mut data[1..3], set_station.station_number);
                     return Ok(data.into())
@@ -166,13 +171,13 @@ pub fn parse_enum_to_arr <'a> (message: MessageSC) -> Result<Box<[u8; 512]>> {
         MessageSC::ReplyMessageSC(reply) => {
             match reply {
                 ReplySC::ReplyWelcomeSC(welcome) => {
-                    let mut data = [0 as u8; 512];
+                    let mut data = [0 as u8; 258];
                     data[0] = welcome.reply_type;
                     NetworkEndian::write_u16(&mut data[1..3], welcome.number_stations);
                     return Ok(data.into())
                 }
                 ReplySC::ReplyAnnounceSC(announce) => {
-                    let mut data = [0 as u8; 512];
+                    let mut data = [0 as u8; 258];
                     data[0] = announce.reply_type;
                     data[1] = announce.songname_size;
                     for i in 0..(announce.songname_size + 1) {
@@ -181,7 +186,7 @@ pub fn parse_enum_to_arr <'a> (message: MessageSC) -> Result<Box<[u8; 512]>> {
                     return Ok(data.into())
                 }
                 ReplySC::ReplyInvalidCommandSC(invalid_command) => {
-                    let mut data = [0 as u8; 512];
+                    let mut data = [0 as u8; 258];
                     data[0] = invalid_command.reply_type;
                     data[1] = invalid_command.reply_string_size;
                     //BigEndian::write_u16(&mut data[2..(announce.songname_size + 1)], announce.songname);
@@ -210,9 +215,10 @@ pub fn handle_client (stream: Mutex<TcpStream>,
     //let file_vec_clone = file_vec.clone();
     let number_stations: u16 = file_vec.len().try_into().unwrap();
 
-    let _ = send_welcome(&stream, number_stations);
-
-    //let mut data = [0 as u8; 512];
+    ////let _ = send_welcome(&stream, number_stations);
+    // send welcome message in response
+    let _ = send_message(&stream, 2, number_stations, 0, [0; 256]);
+    //let mut data = [0 as u8; 258];
 
     loop {
         //let station_vec_clone = station_vec.clone();
@@ -238,27 +244,268 @@ pub fn handle_client (stream: Mutex<TcpStream>,
 //TODO CREATE GENERALIZED SEND_MESSAGE THING (ALSO RECEIVE)
 pub fn send_message (stream: &Mutex<TcpStream>,
                      message_type: u8,
-                     ) -> Result<()> {
-    let set_station = MessageSC::SendMessageSC(
-        SendSC::SendSetStationSC(
-            SetStation {
-                command_type: 1,
-                station_number,
-    }));
-    let data = *parse_enum_to_arr(set_station)?;
-    //println!("data sent from set_station: {:?}", &data);
+                     long_arg: u16,
+                     short_arg: u8,
+                     string_arg: [u8; 256]) -> Result<()> {
+    let (message, message_name) = match message_type {
+        0 => {
+            (MessageSC::SendMessageSC(
+                SendSC::SendHelloSC(
+                    Hello {
+                        command_type: message_type,
+                        udp_port: long_arg,
+            })), String::from("Hello"))
+        }
+        1 => {
+            (MessageSC::SendMessageSC(
+                SendSC::SendSetStationSC(
+                    SetStation {
+                        command_type: message_type,
+                        station_number: long_arg,
+            })), String::from("SetStation"))
+        }
+        2 => {
+            (MessageSC::ReplyMessageSC(
+                ReplySC::ReplyWelcomeSC(
+                    Welcome {
+                        reply_type: message_type,
+                        number_stations: long_arg,
+            })), String::from("Welcome"))
+        }
+        3 => {
+            (MessageSC::ReplyMessageSC(
+                ReplySC::ReplyAnnounceSC(
+                    Announce {
+                        reply_type: message_type,
+                        songname_size: short_arg,
+                        songname: string_arg,
+            })), String::from("Announce"))
+        }
+        4 => {
+            (MessageSC::ReplyMessageSC(
+                ReplySC::ReplyInvalidCommandSC(
+                    InvalidCommand {
+                        reply_type: message_type,
+                        reply_string_size: short_arg,
+                        reply_string: string_arg,
+            })), String::from("InvalidCommand"))
+        }
+        _ => {
+            eprintln!("Received invalid command, in send_command. Exiting \
+                       program now.");
+            std::process::exit(1)
+        }
+    };
+    let data = *parse_enum_to_arr(message)?;
     match stream.lock().unwrap().write_all(&data) {
         Ok(_) => {
             //let _ = stream.lock().unwrap().flush();
             //println!("extra test");
-            return Ok(())
+            Ok(())
         }
         Err(error) => {
-            panic!("Error caused while set_station wrote to stream: {}",
-                error);
+            eprintln!("Error caused while {} wrote to stream: {}",
+                message_name, error);
+            std::process::exit(1)
         }
     }
 }
+
+// fn receive_hello(stream: &Mutex<TcpStream>) -> Result<Hello> {
+//     let mut data = [0 as u8; 258];
+//     let _ = stream.lock().unwrap().read_exact(&mut data)?;
+//     println!("data read by server at top of handle_client: {:?}", &data);
+// 
+//     let hello = match parse_array_to_enum(&data) {
+//         Ok(MessageSC::SendMessageSC(
+//             SendSC::SendHelloSC(hello))) => {
+//             hello
+//         }
+//         Ok(_) => {
+//             panic!("Wrong kind of message!");
+//         }
+//         Err(error) => {
+//             panic!("Error parsing array: {}", error);
+//         }
+//     };
+//     Ok(hello)
+// }
+
+///```
+///let stream = Mutex::new(TcpStream::connect("127.0.0.1:7878").unwrap());
+///let mut write_data = [0 as u8; 256];
+///write_data[0] = 0;
+///write_data[1] = 12;
+///write_data[2] = 34;
+///stream.lock().unwrap().write_all(&write_data);
+///let hello = MessageSC::SendMessageSC(
+///                SendSC::SendHelloSC(
+///                    Hello {
+///                        command_type: 0,
+///                        udp_port: 42069,
+///                    }
+///                )
+///);
+///let hello_out = receive_message(&stream, hello).unwrap();
+///let command_test = if let MessageSC::SendMessageSC(SendSC::SendHelloSC(hello)) = hello_out {
+///    hello.command_type
+///} else {
+///    std::process::exit(1)
+///};
+///assert_eq!(0, command_test);
+///```
+pub fn receive_message(stream: &Mutex<TcpStream>,
+                       expected_command: MessageSC) -> Result<MessageSC> {
+    let mut data = [0 as u8; 258];
+    let _ = stream.lock().unwrap().read_exact(&mut data)?;
+    //println!("data read by server at top of handle_client: {:?}", &data);
+    match parse_array_to_enum(data) {
+        Ok(message) => {
+            let message = message;
+            match (&message, &expected_command) {
+                (MessageSC::SendMessageSC(
+                    SendSC::SendHelloSC(
+                        _)),
+                MessageSC::SendMessageSC(
+                    SendSC::SendHelloSC(
+                        _)))
+                    => {
+                    Ok(message)
+                }
+                (MessageSC::SendMessageSC(
+                    SendSC::SendSetStationSC(
+                        _)),
+                MessageSC::SendMessageSC(
+                    SendSC::SendSetStationSC(
+                        _))) => {
+                    Ok(message)
+                }
+                (MessageSC::ReplyMessageSC(
+                    ReplySC::ReplyWelcomeSC(
+                        _)),
+                MessageSC::ReplyMessageSC(
+                    ReplySC::ReplyWelcomeSC(
+                        _))) => {
+                    Ok(message)
+                }
+                (MessageSC::ReplyMessageSC(
+                    ReplySC::ReplyAnnounceSC(
+                        _)),
+                MessageSC::ReplyMessageSC(
+                    ReplySC::ReplyAnnounceSC(
+                        _)))
+                        => {
+                    Ok(message)
+                }
+                (MessageSC::ReplyMessageSC(
+                    ReplySC::ReplyInvalidCommandSC(
+                        _)),
+                MessageSC::ReplyMessageSC(
+                    ReplySC::ReplyInvalidCommandSC(
+                        _)))
+                        => {
+                    Ok(message)
+                }
+                _ => {
+                    eprintln!("Read and expected files do not match!");
+                    std::process::exit(1)
+                }
+            }
+        }
+        Err(error) => Err(error),
+    }
+    // match parse_array_to_enum(data) {
+    //     Ok(message) => {
+    //         if message == expected_message {
+    //             Ok(message)
+    //         } else {
+    //             eprintln!("Found something other than what was expected!");
+    //             std::process::exit(1)
+    //         }
+    //     }
+    //     Err(error) => Err(error),
+    // }
+    //match parse_array_to_enum(&data) {
+    //    Ok(message) => {
+    //        let message::<'a>: MessageSC = message;
+    //        match expected_message {
+    //            message => {
+    //                return Ok(message)
+    //            }
+    //        }
+    //    }
+    //    Err(error) => {
+    //        eprintln!("{}", error);
+    //        std::process::exit(1)
+    //    }
+    //    Err(_) => panic!("Something else!"),
+    //}
+
+    //let message = match parse_array_to_enum(&data) {
+    //    //Ok(MessageSC::SendMessageSC(
+    //    //    SendSC::SendHelloSC(hello))) => {
+    //    //    hello
+    //    //}
+    //    Ok(message) => {
+    //        let message;
+    //        match &message {
+    //            MessageSC::SendMessageSC(
+    //                SendSC::SendHelloSC()
+    //            )
+    //        }
+    //    }
+    //    Ok(_) => {
+    //        panic!("Wrong kind of message!");
+    //    }
+    //    Err(error) => {
+    //        panic!("Error parsing array: {}", error);
+    //    }
+    //};
+    //Ok(hello)
+
+}
+
+// pub fn send_message (stream: &Mutex<TcpStream>,
+//                      message: MessageSC) -> Result<()> {
+//     //println!("data sent from set_station: {:?}", &data);
+//     let message_type = match &message {
+//         MessageSC::SendMessageSC(send) => {
+//             match send {
+//                 SendSC::SendHelloSC(_) => {
+//                     String::from("Hello")
+//                 }
+//                 SendSC::SendSetStationSC(_) => {
+//                     String::from("SetStation")
+//                 }
+//             }
+//         }
+//         MessageSC::ReplyMessageSC(reply) => {
+//             match reply {
+//                 ReplySC::ReplyWelcomeSC(_) => {
+//                     String::from("Welcome")
+//                 }
+//                 ReplySC::ReplyAnnounceSC(_) => {
+//                     String::from("Announce")
+//                 }
+//                 ReplySC::ReplyInvalidCommandSC(_) => {
+//                     String::from("InvalidCommand")
+//                 }
+//             }
+//         }
+//     };
+//     let data = *parse_enum_to_arr(message)?;
+//     match stream.lock().unwrap().write_all(&data) {
+//         Ok(_) => {
+//             //let _ = stream.lock().unwrap().flush();
+//             //println!("extra test");
+//             return Ok(())
+//         }
+//         Err(error) => {
+//             panic!("Error caused while {} wrote to stream: {}",
+//                 message_type, error);
+//         }
+//     }
+// }
 
 pub fn set_station(stream: &Mutex<TcpStream>, station_number: u16) -> Result<()> {
     let set_station = MessageSC::SendMessageSC(
@@ -283,11 +530,11 @@ pub fn set_station(stream: &Mutex<TcpStream>, station_number: u16) -> Result<()>
 }
 
 fn receive_hello(stream: &Mutex<TcpStream>) -> Result<Hello> {
-    let mut data = [0 as u8; 512];
+    let mut data = [0 as u8; 258];
     let _ = stream.lock().unwrap().read_exact(&mut data)?;
     println!("data read by server at top of handle_client: {:?}", &data);
 
-    let hello = match parse_array_to_enum(&data) {
+    let hello = match parse_array_to_enum(data) {
         Ok(MessageSC::SendMessageSC(
             SendSC::SendHelloSC(hello))) => {
             hello
@@ -331,13 +578,13 @@ fn send_hello(stream: &Mutex<TcpStream>, udp_port: &u16) -> Result<()>{
 }
 
 fn receive_welcome(stream: &Mutex<TcpStream>) -> Result<Welcome> {
-    let mut data = [0 as u8; 512];
+    let mut data = [0 as u8; 258];
     let _n_bytes = stream.lock().unwrap().read_exact(&mut data)?;
     println!("data read by client following hello send: {:?}", &data);
     let welcome = if let Ok(
                             MessageSC::ReplyMessageSC(
                                 ReplySC::ReplyWelcomeSC(
-                                    welcome))) = parse_array_to_enum(&data) {
+                                    welcome))) = parse_array_to_enum(data) {
         welcome
     } else {
         panic!("Uh oh! Received something other than a welcome message.");
@@ -352,11 +599,11 @@ fn receive_set_station(stream: &Mutex<TcpStream>,
                        hello: &Hello,
                        station_vec: Vec<Station>,
                        /*ip: &Ipv4Addr*/) -> Result<()> {
-    let mut data = [0 as u8; 512];
+    let mut data = [0 as u8; 258];
 
     stream.lock().unwrap().read_exact(&mut data)?;
     println!("data read by server anticipating set_station: {:?}", &data);
-    match parse_array_to_enum(&mut data) {
+    match parse_array_to_enum(data) {
         Ok(MessageSC::SendMessageSC(
                 SendSC::SendSetStationSC(set_station))) => {
             println!("hey you're close!");
@@ -379,12 +626,12 @@ fn receive_set_station(stream: &Mutex<TcpStream>,
     }
 }
 
-fn send_announce(stream: &Mutex<TcpStream>,
-                 songname_length: u8,
-                 songname: [u8; 256]) -> Result<()> {
-
-
-}
+//fn send_announce(stream: &Mutex<TcpStream>,
+//                 songname_length: u8,
+//                 songname: [u8; 256]) -> Result<()> {
+//
+//
+//}
 
 pub fn play_loop(station_vec: Vec<Station>,
               server_name: Ipv4Addr,
