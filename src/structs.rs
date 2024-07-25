@@ -211,18 +211,27 @@ pub fn handle_client (stream: Mutex<TcpStream>,
     station_vec: Vec<Station>) -> Result<()> {
 
     let hello: Hello = receive_hello(&stream)?;
+    //let hello: Hello = if let MessageSC::SendMessageSC(
+    //    SendSC::SendHelloSC(hello) = receive_message(&stream, hello_check)
+    //)
+    if let Ok(MessageSC::SendMessageSC(
+            SendSC::SendHelloSC(
+                _hello))) = receive_message(&stream, 0) {};
 
     //let file_vec_clone = file_vec.clone();
     let number_stations: u16 = file_vec.len().try_into().unwrap();
 
-    ////let _ = send_welcome(&stream, number_stations);
+    let _ = send_welcome(&stream, number_stations);
     // send welcome message in response
-    let _ = send_message(&stream, 2, number_stations, 0, [0; 256]);
+    //let _ = send_message(&stream, 2, number_stations, 0, [0; 256]);
     //let mut data = [0 as u8; 258];
 
     loop {
         //let station_vec_clone = station_vec.clone();
         let _ = receive_set_station(&stream, &hello, station_vec.clone());
+        //if let Ok(MessageSC::SendMessageSC(
+        //        SendSC::SendSetStationSC(
+        //            _set_station))) = receive_message(&stream, 1) {};
     }
 }
 
@@ -331,6 +340,32 @@ pub fn send_message (stream: &Mutex<TcpStream>,
 //     Ok(hello)
 // }
 
+
+//pub fn receive_message2(stream: &Mutex<TcpStream>,
+//                        expected_command: u8) -> Result<MessageSC> {
+//    let mut data = [0 as u8; 258];
+//    let _ = stream.lock().unwrap().read_exact(&mut data)?;
+//    match &data[0] {
+//        0 => {
+//            Ok()
+//        }
+//    }
+//    //match parse_parse_array_to_enum(data) {
+//    //    Ok(message) => {
+//    //        match message {
+//    //            MessageSC::SendMessageSC(
+//    //                SendSC::SendHelloSC(
+//    //                    hello) => {
+//    //                    hell
+//    //                }
+//    //            )
+//    //        }
+//    //    }
+//
+//    //}
+//
+//}
+
 ///```
 ///let stream = Mutex::new(TcpStream::connect("127.0.0.1:7878").unwrap());
 ///let mut write_data = [0 as u8; 256];
@@ -345,17 +380,19 @@ pub fn send_message (stream: &Mutex<TcpStream>,
 ///                        udp_port: 42069,
 ///                    }
 ///                )
-///);
+///            );
 ///let hello_out = receive_message(&stream, hello).unwrap();
-///let command_test = if let MessageSC::SendMessageSC(SendSC::SendHelloSC(hello)) = hello_out {
-///    hello.command_type
-///} else {
-///    std::process::exit(1)
-///};
+///let command_test = if let MessageSC::SendMessageSC(
+///                             SendSC::SendHelloSC(
+///                                 hello)) = hello_out {
+///                                     hello.command_type
+///                   } else {
+///                    std::process::exit(1)
+///                   };
 ///assert_eq!(0, command_test);
 ///```
 pub fn receive_message(stream: &Mutex<TcpStream>,
-                       expected_command: MessageSC) -> Result<MessageSC> {
+                       expected_command: u8) -> Result<MessageSC> {
     let mut data = [0 as u8; 258];
     let _ = stream.lock().unwrap().read_exact(&mut data)?;
     //println!("data read by server at top of handle_client: {:?}", &data);
@@ -365,45 +402,27 @@ pub fn receive_message(stream: &Mutex<TcpStream>,
             match (&message, &expected_command) {
                 (MessageSC::SendMessageSC(
                     SendSC::SendHelloSC(
-                        _)),
-                MessageSC::SendMessageSC(
-                    SendSC::SendHelloSC(
-                        _)))
-                    => {
+                        _)), 0) => {
                     Ok(message)
                 }
                 (MessageSC::SendMessageSC(
                     SendSC::SendSetStationSC(
-                        _)),
-                MessageSC::SendMessageSC(
-                    SendSC::SendSetStationSC(
-                        _))) => {
+                        _)), 1) => {
                     Ok(message)
                 }
                 (MessageSC::ReplyMessageSC(
                     ReplySC::ReplyWelcomeSC(
-                        _)),
-                MessageSC::ReplyMessageSC(
-                    ReplySC::ReplyWelcomeSC(
-                        _))) => {
+                        _)), 2) => {
                     Ok(message)
                 }
                 (MessageSC::ReplyMessageSC(
                     ReplySC::ReplyAnnounceSC(
-                        _)),
-                MessageSC::ReplyMessageSC(
-                    ReplySC::ReplyAnnounceSC(
-                        _)))
-                        => {
+                        _)), 3) => {
                     Ok(message)
                 }
                 (MessageSC::ReplyMessageSC(
                     ReplySC::ReplyInvalidCommandSC(
-                        _)),
-                MessageSC::ReplyMessageSC(
-                    ReplySC::ReplyInvalidCommandSC(
-                        _)))
-                        => {
+                        _)), 4) => {
                     Ok(message)
                 }
                 _ => {
