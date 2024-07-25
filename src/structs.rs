@@ -13,6 +13,15 @@ pub struct Hello {
     pub udp_port: u16,
 }
 
+impl Clone for Hello {
+    fn clone(&self) -> Self {
+        Self {
+            command_type: self.command_type.clone(),
+            udp_port: self.udp_port.clone(),
+        }
+    }
+}
+
 pub struct SetStation {
     pub command_type: u8, // should be == 1 station_number: u16,
     pub station_number: u16,
@@ -114,7 +123,7 @@ pub fn parse_array_to_enum(data: [u8; 258]) -> Result<MessageSC>  {
         })))}
         3 => {
             // Announce
-            let mut songname_data = [0 as u8; 256];
+            let mut songname_data = [0_u8; 256];
             songname_data.copy_from_slice(&data[2..]);
             Ok(
                 MessageSC::ReplyMessageSC(
@@ -126,7 +135,7 @@ pub fn parse_array_to_enum(data: [u8; 258]) -> Result<MessageSC>  {
         })))}
         4 => {
             // InvalidCommand
-            let mut reply_string_data = [0 as u8; 256];
+            let mut reply_string_data = [0_u8; 256];
             reply_string_data.copy_from_slice(&data[2..]);
             Ok(
                 MessageSC::ReplyMessageSC(
@@ -147,53 +156,53 @@ pub fn parse_array_to_enum(data: [u8; 258]) -> Result<MessageSC>  {
 }
 
 
-pub fn parse_enum_to_arr <'a> (message: MessageSC) -> Result<Box<[u8; 258]>> {
+pub fn parse_enum_to_arr(message: MessageSC) -> Result<Box<[u8; 258]>> {
     match message {
         MessageSC::SendMessageSC(send) => {
             //send::<SendHello, SendSetStation>.command_type; // use traits instead
             match send {
                 SendSC::SendHelloSC(hello) => {
                     // //let mut data = [hello.command_type, hello.udp_port.to_be_bytes().iter()];
-                    let mut data = [0 as u8; 258];
+                    let mut data = [0_u8; 258];
                     data[0] = hello.command_type;
                     NetworkEndian::write_u16(&mut data[1..3], hello.udp_port);
                     //data[1..3].copy_from_slice(&hello.udp_port.to_be_bytes());
                     Ok(data.into())
                 }
                 SendSC::SendSetStationSC(set_station) => {
-                    let mut data = [0 as u8; 258];
+                    let mut data = [0_u8; 258];
                     data[0] = set_station.command_type;
                     NetworkEndian::write_u16(&mut data[1..3], set_station.station_number);
-                    return Ok(data.into())
+                    Ok(data.into())
                 }
             }
         }
         MessageSC::ReplyMessageSC(reply) => {
             match reply {
                 ReplySC::ReplyWelcomeSC(welcome) => {
-                    let mut data = [0 as u8; 258];
+                    let mut data = [0_u8; 258];
                     data[0] = welcome.reply_type;
                     NetworkEndian::write_u16(&mut data[1..3], welcome.number_stations);
-                    return Ok(data.into())
+                    Ok(data.into())
                 }
                 ReplySC::ReplyAnnounceSC(announce) => {
-                    let mut data = [0 as u8; 258];
+                    let mut data = [0_u8; 258];
                     data[0] = announce.reply_type;
                     data[1] = announce.songname_size;
                     for i in 0..(announce.songname_size + 1) {
                         data[(i + 2) as usize] = announce.songname[i as usize]
                     }
-                    return Ok(data.into())
+                    Ok(data.into())
                 }
                 ReplySC::ReplyInvalidCommandSC(invalid_command) => {
-                    let mut data = [0 as u8; 258];
+                    let mut data = [0_u8; 258];
                     data[0] = invalid_command.reply_type;
                     data[1] = invalid_command.reply_string_size;
                     //BigEndian::write_u16(&mut data[2..(announce.songname_size + 1)], announce.songname);
                     for i in 0..(invalid_command.reply_string_size + 1) {
                         data[(i + 2) as usize] = invalid_command.reply_string[i as usize]
                     }
-                    return Ok(data.into())
+                    Ok(data.into())
                 }
             }
         }
@@ -210,28 +219,36 @@ pub fn handle_client (stream: Mutex<TcpStream>,
     file_vec: Vec<String>,
     station_vec: Vec<Station>) -> Result<()> {
 
-    let hello: Hello = receive_hello(&stream)?;
+    ////let hello: Hello = receive_hello(&stream)?;
     //let hello: Hello = if let MessageSC::SendMessageSC(
     //    SendSC::SendHelloSC(hello) = receive_message(&stream, hello_check)
     //)
-    //if let Ok(MessageSC::SendMessageSC(
-    //        SendSC::SendHelloSC(
-    //            _hello))) = receive_message(&stream, 0) {};
+    let hello = if let Ok(MessageSC::SendMessageSC(
+            SendSC::SendHelloSC(
+                hello))) = receive_message(&stream, 0) {
+        //received_hello();
+        hello
+    } else {
+        eprintln!("No hello returned from received_message, exiting.");
+        std::process::exit(1)
+    };
 
     //let file_vec_clone = file_vec.clone();
     let number_stations: u16 = file_vec.len().try_into().unwrap();
 
-    let _ = send_welcome(&stream, number_stations);
+    ////let _ = send_welcome(&stream, number_stations);
     // send welcome message in response
-    //let _ = send_message(&stream, 2, number_stations, 0, [0; 256]);
-    //let mut data = [0 as u8; 258];
+    let _ = send_message(&stream, 2, number_stations, 0, [0; 256]);
+    //let mut data = [0_u8; 258];
 
     loop {
         //let station_vec_clone = station_vec.clone();
-        let _ = receive_set_station(&stream, &hello, station_vec.clone());
-        //if let Ok(MessageSC::SendMessageSC(
-        //        SendSC::SendSetStationSC(
-        //            _set_station))) = receive_message(&stream, 1) {};
+        ////let _ = receive_set_station(&stream, &hello, station_vec.clone());
+        if let Ok(MessageSC::SendMessageSC(
+                SendSC::SendSetStationSC(
+                    set_station))) = receive_message(&stream, 1) {
+            let _ = received_set_station(&stream, &set_station, &hello, &station_vec);
+        };
     }
 }
 
@@ -321,7 +338,7 @@ pub fn send_message (stream: &Mutex<TcpStream>,
 }
 
 // fn receive_hello(stream: &Mutex<TcpStream>) -> Result<Hello> {
-//     let mut data = [0 as u8; 258];
+//     let mut data = [0_u8; 258];
 //     let _ = stream.lock().unwrap().read_exact(&mut data)?;
 //     println!("data read by server at top of handle_client: {:?}", &data);
 // 
@@ -343,7 +360,7 @@ pub fn send_message (stream: &Mutex<TcpStream>,
 
 //pub fn receive_message2(stream: &Mutex<TcpStream>,
 //                        expected_command: u8) -> Result<MessageSC> {
-//    let mut data = [0 as u8; 258];
+//    let mut data = [0_u8; 258];
 //    let _ = stream.lock().unwrap().read_exact(&mut data)?;
 //    match &data[0] {
 //        0 => {
@@ -368,7 +385,7 @@ pub fn send_message (stream: &Mutex<TcpStream>,
 
 ///```
 ///let stream = Mutex::new(TcpStream::connect("127.0.0.1:7878").unwrap());
-///let mut write_data = [0 as u8; 256];
+///let mut write_data = [0_u8; 256];
 ///write_data[0] = 0;
 ///write_data[1] = 12;
 ///write_data[2] = 34;
@@ -393,12 +410,12 @@ pub fn send_message (stream: &Mutex<TcpStream>,
 ///```
 pub fn receive_message(stream: &Mutex<TcpStream>,
                        expected_command: u8) -> Result<MessageSC> {
-    let mut data = [0 as u8; 258];
-    let _ = stream.lock().unwrap().read_exact(&mut data)?;
+    let mut data = [0_u8; 258];
+    stream.lock().unwrap().read_exact(&mut data)?;
     //println!("data read by server at top of handle_client: {:?}", &data);
     match parse_array_to_enum(data) {
         Ok(message) => {
-            let message = message;
+            //let message = message;
             match (&message, &expected_command) {
                 (MessageSC::SendMessageSC(
                     SendSC::SendHelloSC(
@@ -539,7 +556,7 @@ pub fn set_station(stream: &Mutex<TcpStream>, station_number: u16) -> Result<()>
         Ok(_) => {
             //let _ = stream.lock().unwrap().flush();
             //println!("extra test");
-            return Ok(())
+            Ok(())
         }
         Err(error) => {
             panic!("Error caused while set_station wrote to stream: {}",
@@ -549,8 +566,8 @@ pub fn set_station(stream: &Mutex<TcpStream>, station_number: u16) -> Result<()>
 }
 
 fn receive_hello(stream: &Mutex<TcpStream>) -> Result<Hello> {
-    let mut data = [0 as u8; 258];
-    let _ = stream.lock().unwrap().read_exact(&mut data)?;
+    let mut data = [0_u8; 258];
+    stream.lock().unwrap().read_exact(&mut data)?;
     println!("data read by server at top of handle_client: {:?}", &data);
 
     let hello = match parse_array_to_enum(data) {
@@ -597,8 +614,8 @@ fn send_hello(stream: &Mutex<TcpStream>, udp_port: &u16) -> Result<()>{
 }
 
 fn receive_welcome(stream: &Mutex<TcpStream>) -> Result<Welcome> {
-    let mut data = [0 as u8; 258];
-    let _n_bytes = stream.lock().unwrap().read_exact(&mut data)?;
+    let mut data = [0_u8; 258];
+    stream.lock().unwrap().read_exact(&mut data)?;
     println!("data read by client following hello send: {:?}", &data);
     let welcome = if let Ok(
                             MessageSC::ReplyMessageSC(
@@ -614,11 +631,36 @@ fn receive_welcome(stream: &Mutex<TcpStream>) -> Result<Welcome> {
     Ok(welcome)
 }
 
+fn received_set_station(stream: &Mutex<TcpStream>,
+                        set_station: &SetStation,
+                        hello: &Hello,
+                        station_vec: &Vec<Station>) -> Result<()> {
+    if let Some(station) = station_vec.get(set_station.station_number as usize) {
+        println!("id be amazed if this printed");
+        station.udp_ports.lock().unwrap().push(hello.udp_port);
+    }
+    let mut song = [0_u8; 256];
+    //let _ = station_vec[set_station.station_number as usize].song_path.bytes().enumerate().map(|(i, letter)| song[i] = letter);
+    for (i, ch) in station_vec[set_station.station_number as usize]
+                              .song_path
+                              .bytes()
+                              .enumerate() {
+        if i >= 256 {
+            break
+        }
+        song[i] = ch;
+    }
+    //println!("song: {:?}", &song);
+    let song_len: u8 = station_vec[set_station.station_number as usize].song_path.len() as u8;
+    let _ = send_message(stream, 3, 0, song_len, song);
+    Ok(())
+}
+
 fn receive_set_station(stream: &Mutex<TcpStream>,
                        hello: &Hello,
                        station_vec: Vec<Station>,
                        /*ip: &Ipv4Addr*/) -> Result<()> {
-    let mut data = [0 as u8; 258];
+    let mut data = [0_u8; 258];
 
     stream.lock().unwrap().read_exact(&mut data)?;
     println!("data read by server anticipating set_station: {:?}", &data);
@@ -667,7 +709,7 @@ fn play_all_songs_chunk(station_vec: Vec<Station>,
     //let smaller_time_gap = time::Duration::from_millis(5);
     for (i, song) in station_vec.iter().enumerate() {
         //let file = File::open(song.song_path)?;
-        let mut song_buf = [0 as u8; 1024];
+        let mut song_buf = [0_u8; 1024];
         let mut current_file = open_file_vec.lock().unwrap();
         let current_file = current_file.get_mut(i).unwrap();
         match current_file.read_exact(&mut song_buf) {
@@ -675,6 +717,7 @@ fn play_all_songs_chunk(station_vec: Vec<Station>,
             Err(error) => match error.kind() {
                 ErrorKind::UnexpectedEof => {
                     let _ = current_file.rewind();
+
                 }
                 _ => {
                     panic!("some other error");

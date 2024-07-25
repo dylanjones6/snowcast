@@ -56,7 +56,7 @@ fn main() -> Result<()> {
                   press \"q\" to exit.");
         let mut input = String::new();
         let _ = std::io::stdin().read_line(&mut input);
-        let input: Vec<String> = input.trim().split_whitespace().map(String::from).collect();
+        let input: Vec<String> = input.split_whitespace().map(String::from).collect();
         //println!("{:?}", input);
         let station_number = if input.len() == 1 && input[0] == "q" {
             std::process::exit(1);
