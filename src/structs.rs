@@ -214,9 +214,9 @@ pub fn handle_client (stream: Mutex<TcpStream>,
     //let hello: Hello = if let MessageSC::SendMessageSC(
     //    SendSC::SendHelloSC(hello) = receive_message(&stream, hello_check)
     //)
-    if let Ok(MessageSC::SendMessageSC(
-            SendSC::SendHelloSC(
-                _hello))) = receive_message(&stream, 0) {};
+    //if let Ok(MessageSC::SendMessageSC(
+    //        SendSC::SendHelloSC(
+    //            _hello))) = receive_message(&stream, 0) {};
 
     //let file_vec_clone = file_vec.clone();
     let number_stations: u16 = file_vec.len().try_into().unwrap();
