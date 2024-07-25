@@ -1,7 +1,7 @@
 use std::net::{TcpStream, UdpSocket, Ipv4Addr};
 use std::io::{ErrorKind, Read, Result, Seek, Write};
 use std::fs::File;
-use std::sync::{Mutex, Arc};
+use std::sync::{Mutex, Arc, RwLock};
 use std::{thread, time};
 //use crate::structs;
 use byteorder::{ByteOrder, NetworkEndian};
@@ -656,36 +656,36 @@ fn received_set_station(stream: &Mutex<TcpStream>,
     Ok(())
 }
 
-fn receive_set_station(stream: &Mutex<TcpStream>,
-                       hello: &Hello,
-                       station_vec: Vec<Station>,
-                       /*ip: &Ipv4Addr*/) -> Result<()> {
-    let mut data = [0_u8; 258];
-
-    stream.lock().unwrap().read_exact(&mut data)?;
-    println!("data read by server anticipating set_station: {:?}", &data);
-    match parse_array_to_enum(data) {
-        Ok(MessageSC::SendMessageSC(
-                SendSC::SendSetStationSC(set_station))) => {
-            println!("hey you're close!");
-            if let Some(station) = station_vec.get(set_station.station_number as usize) {
-                println!("id be amazed if this printed");
-                station.udp_ports.lock().unwrap().push(hello.udp_port);
-            }
-            println!("added port to station_vec");
-            Ok(())
-        }
-        Ok(MessageSC::SendMessageSC(SendSC::SendHelloSC(_))) => {
-            panic!("Received a Hello message, that's not good.");
-        }
-        Ok(MessageSC::ReplyMessageSC(_)) => {
-            panic!("Received a reply message, that's not good.");
-        }
-        Err(error) => {
-            panic!("Error parsing array: {}", error);
-        }
-    }
-}
+//fn receive_set_station(stream: &Mutex<TcpStream>,
+//                       hello: &Hello,
+//                       station_vec: Vec<Station>,
+//                       /*ip: &Ipv4Addr*/) -> Result<()> {
+//    let mut data = [0_u8; 258];
+//
+//    stream.lock().unwrap().read_exact(&mut data)?;
+//    println!("data read by server anticipating set_station: {:?}", &data);
+//    match parse_array_to_enum(data) {
+//        Ok(MessageSC::SendMessageSC(
+//                SendSC::SendSetStationSC(set_station))) => {
+//            println!("hey you're close!");
+//            if let Some(station) = station_vec.get(set_station.station_number as usize) {
+//                println!("id be amazed if this printed");
+//                station.udp_ports.lock().unwrap().push(hello.udp_port);
+//            }
+//            println!("added port to station_vec");
+//            Ok(())
+//        }
+//        Ok(MessageSC::SendMessageSC(SendSC::SendHelloSC(_))) => {
+//            panic!("Received a Hello message, that's not good.");
+//        }
+//        Ok(MessageSC::ReplyMessageSC(_)) => {
+//            panic!("Received a reply message, that's not good.");
+//        }
+//        Err(error) => {
+//            panic!("Error parsing array: {}", error);
+//        }
+//    }
+//}
 
 //fn send_announce(stream: &Mutex<TcpStream>,
 //                 songname_length: u8,
@@ -702,6 +702,8 @@ pub fn play_loop(station_vec: Vec<Station>,
     }
 }
 
+//fn play_song_chunk()
+
 fn play_all_songs_chunk(station_vec: Vec<Station>,
                         server_name: Ipv4Addr,
                         open_file_vec: Arc<Mutex<Vec<File>>>) -> Result<()> {
@@ -717,7 +719,6 @@ fn play_all_songs_chunk(station_vec: Vec<Station>,
             Err(error) => match error.kind() {
                 ErrorKind::UnexpectedEof => {
                     let _ = current_file.rewind();
-
                 }
                 _ => {
                     panic!("some other error");
@@ -735,3 +736,16 @@ fn play_all_songs_chunk(station_vec: Vec<Station>,
     thread::sleep(time_gap);
     Ok(())
 }
+
+//
+//
+//      server:                                         client:
+//  1. wait for hello <-----------------------> 1. send hello w/ udp_port
+//  2. receive hello, spawn thread, store <-|   2. wait for welcome
+//     udp_port, send welcome w/ # stats.       3. receive welcome, store + 
+//  3. wait for set_station                        print # stations
+//  4. receive set_station, store               4. send set_station w/ stat. #
+//     station_number, announce song in         5. 
+//     response
+//  5. wait for new set_station
+//  6. quit and send quit command (5)
