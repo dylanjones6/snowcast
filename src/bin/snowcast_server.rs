@@ -50,7 +50,7 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
     //let station_vec_clone = station_vec
 
 
-    thread::spawn(move|| play_loop(station_vec_clone, server_name, open_file_vec));
+    //thread::spawn(move|| play_loop(station_vec_clone, server_name, open_file_vec));
 
 
     //let number_stations: u16 = file_vec.len(); //TODO implement number_stations into response

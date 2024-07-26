@@ -1,6 +1,7 @@
 use std::net::{TcpStream, UdpSocket, Ipv4Addr};
 use std::io::{ErrorKind, Read, Result, Seek, Write};
 use std::fs::File;
+use std::string::FromUtf8Error;
 use std::sync::{Mutex, Arc, RwLock};
 use std::{thread, time};
 //use crate::structs;
@@ -72,6 +73,63 @@ impl Clone for Station {
             // Clone other fields similarly
         }
     }
+}
+
+
+struct ServerData {
+    server_name: Ipv4Addr,
+    tcp_port: u16,
+    udp_port: Arc<RwLock<Vec<u16>>>,
+    //number_stations: u16,
+    stream: Mutex<TcpStream>,
+    station_number: RwLock<u16>,
+    song_path_vec: Vec<String>,
+    open_file_vec: Arc<Mutex<Vec<File>>>,
+}
+
+impl ServerData {
+    fn get_number_stations(&self) -> Result<u16> {
+        Ok(self.song_path_vec.len() as u16)
+    }
+    fn get_songname_size(&self) -> Result<u8> {
+        Ok(self.song_path_vec[self.station_number.read().unwrap().clone() as usize].len() as u8)
+    }
+    fn get_songname(&self) -> Result<[u8; 256]> {
+        let mut song = [0_u8; 256];
+        for (i, ch) in self.song_path_vec[self.station_number.read().unwrap().clone() as usize]
+                                         .bytes()
+                                         .enumerate() {
+            song[i] = ch;
+        }
+        Ok(song)
+    }
+    fn get_songname_string(&self) -> Result<String> {
+        let songname_arr = self.get_songname().unwrap();
+        let songname_vec = songname_arr.to_vec();
+        Ok(String::from_utf8(songname_vec).unwrap())
+    }
+}
+
+struct ClientData <'a>{
+    server_name: Ipv4Addr,
+    tcp_port: u16,
+    udp_port: u16,
+    number_stations: u16,
+    station_number: RwLock<u16>,
+    songname_size: u8,
+    songname: &'a [u8],
+}
+
+struct DataContainer <'a> {
+    server_name: Ipv4Addr, //input for client at startup; static
+    tcp_port: u16, //input for client at startup; static
+    udp_port: u16, //input for client at startup, comm. w/ hello; static (w/in thread)
+    number_stations: u16, //input for server at startup, comm. w/ welcome; static
+    station_number: RwLock<u16>, //input for client at set_station prompt, 
+                                 //comm. w/ set_station
+    current_songname_size: u8,
+    current_songname: &'a [u8],
+    //song_path_vec: Vec<&'a str>, //input for server, never comm.
 }
 
 pub enum MessageSC {
@@ -215,9 +273,11 @@ pub fn initiate_handshake(stream: &Mutex<TcpStream>, udp_port: &u16) -> Result<W
 }
 
 pub fn handle_client (stream: Mutex<TcpStream>,
-    server_name: Ipv4Addr,
-    file_vec: Vec<String>,
-    station_vec: Vec<Station>) -> Result<()> {
+                      server_name: Ipv4Addr,
+                      tcp_port: u16,
+                      udp_port_vec: Arc<RwLock<Vec<u16>>>,
+                      song_path_vec: Vec<String>,
+                      /*station_vec: Vec<Station>*/) -> Result<()> {
 
     ////let hello: Hello = receive_hello(&stream)?;
     //let hello: Hello = if let MessageSC::SendMessageSC(
@@ -234,12 +294,28 @@ pub fn handle_client (stream: Mutex<TcpStream>,
     };
 
     //let file_vec_clone = file_vec.clone();
-    let number_stations: u16 = file_vec.len().try_into().unwrap();
+    //let number_stations: u16 = file_vec.len().try_into().unwrap();
+    let number_stations: u16 = song_path_vec.len().try_into().unwrap();
 
     ////let _ = send_welcome(&stream, number_stations);
     // send welcome message in response
     let _ = send_message(&stream, 2, number_stations, 0, [0; 256]);
     //let mut data = [0_u8; 258];
+    //
+    let open_file_vec: Arc<Mutex<Vec<File>>> = Arc::new(Mutex::new(Vec::new()));
+    for song_path in song_path_vec {
+        open_file_vec.lock().unwrap().push(File::open(song_path)?);
+    }
+
+    let server_data = ServerData {
+        server_name,
+        tcp_port,
+        udp_port: hello.udp_port, //need to make this like an arc
+        stream,
+        station_number: RwLock::new(65535),
+        song_path_vec,
+        open_file_vec,
+    };
 
     loop {
         //let station_vec_clone = station_vec.clone();
@@ -247,11 +323,21 @@ pub fn handle_client (stream: Mutex<TcpStream>,
         if let Ok(MessageSC::SendMessageSC(
                 SendSC::SendSetStationSC(
                     set_station))) = receive_message(&stream, 1) {
-            let _ = received_set_station(&stream, &set_station, &hello, &station_vec);
+            //let _ = received_set_station(&stream, &set_station, &hello, &station_vec);
+            let _ = received_set_station2(server_data, set_station);
         };
     }
 }
 
+//struct ServerData {
+//    server_name: Ipv4Addr,
+//    tcp_port: u16,
+//    udp_port: u16,
+//    //number_stations: u16,
+//    station_number: RwLock<u16>,
+//    song_path_vec: Vec<String>,
+//    open_file_vec: Arc<Mutex<Vec<File>>>,
+//}
 
 // fn send_hello(stream: &Mutex<TcpStream>, udp_port: &u16) -> Result<()>{
 //     let hello = MessageSC::SendMessageSC(SendSC::SendHelloSC(
@@ -631,6 +717,12 @@ fn receive_welcome(stream: &Mutex<TcpStream>) -> Result<Welcome> {
     Ok(welcome)
 }
 
+fn received_set_station2(server_data: &ServerData,
+                         set_station: &SetStation) {
+
+    
+}
+
 fn received_set_station(stream: &Mutex<TcpStream>,
                         set_station: &SetStation,
                         hello: &Hello,
@@ -694,15 +786,48 @@ fn received_set_station(stream: &Mutex<TcpStream>,
 //
 //}
 
-pub fn play_loop(station_vec: Vec<Station>,
-              server_name: Ipv4Addr,
-              open_file_vec: Arc<Mutex<Vec<File>>>) -> Result<()> {
+// pub fn play_loop(station_vec: Vec<Station>,
+//               server_name: Ipv4Addr,
+//               open_file_vec: Arc<Mutex<Vec<File>>>) -> Result<()> {
+//     loop {
+//         let _ = play_all_songs_chunk(station_vec.clone(), server_name, open_file_vec.clone());
+//     }
+// }
+
+
+fn play_song_loop(server_data: &ServerData) -> Result<()> {
     loop {
-        let _ = play_all_songs_chunk(station_vec.clone(), server_name, open_file_vec.clone());
+        let _ = play_song_chunk(server_data);
     }
 }
 
-//fn play_song_chunk()
+fn play_song_chunk(server_data: &ServerData) -> Result<()> {
+    let time_gap = time::Duration::from_micros(62500);
+    let mut song_buf = [0_u8; 1024];
+    let station_int = server_data.station_number.read().unwrap().clone() as usize;
+    let mut open_file_vec = server_data.open_file_vec.lock().unwrap();
+    let current_file: &mut File = open_file_vec.get_mut(station_int).unwrap();//[server_data.station_number.read().unwrap().clone() as usize];
+    match current_file.read_exact(&mut song_buf) {
+        Ok(_) => {},
+        Err(error) => match error.kind() {
+            ErrorKind::UnexpectedEof => {
+                let _ = current_file.rewind();
+            }
+            _ => {
+                eprintln!("Issue reading file {}", server_data.get_songname_string().unwrap());
+                return Err(ErrorKind::InvalidData.into())
+            }
+        }
+    }
+    for udp_port in server_data.udp_port.read().unwrap().iter() {
+        let socket: UdpSocket = UdpSocket::bind(
+            format!("{}:{}", &server_data.server_name, &server_data.tcp_port))?;
+        let _ = socket.connect(format!("{}:{}", &server_data.server_name, &udp_port))?;
+        let _ = socket.send(&song_buf);
+    }
+    thread::sleep(time_gap);
+    Ok(())
+}
 
 fn play_all_songs_chunk(station_vec: Vec<Station>,
                         server_name: Ipv4Addr,
