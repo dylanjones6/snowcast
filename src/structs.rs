@@ -1,4 +1,4 @@
-use core::slice::SlicePattern;
+//use core::slice::SlicePattern;
 use std::net::{TcpStream, UdpSocket, Ipv4Addr};
 use std::io::{Error, ErrorKind, Read, Result, Seek, Write};
 use std::fs::File;
@@ -8,44 +8,35 @@ use std::{thread, time};
 //use crate::structs;
 use byteorder::{ByteOrder, NetworkEndian};
 
-//enum Message {
-//    Hello (u8, u16),
-//    SetStation (u8, u16),
-//    Welcome (u8, u16),
-//    Announce (u8, u8, Vec<u8>),
-//    InvalidCommand (u8, u8, Vec<u8>),
-//}
-//
-//impl Message {
-//    fn send(&self, stream: Mutex<TcpStream>) -> Result<Vec<u8>> {
-//        let vec = match self {
-//            Message::Hello(command, udp_port) => {
-//                let mut vec = vec!(*command);
-//                vec.push(udp_port.to_be_bytes()[0]);
-//                vec.push(udp_port.to_be_bytes()[1]);
-//                vec
-//            }
-//            Message::SetStation(command, station_number) => {
-//                let mut vec = vec!(*command);
-//                vec.push(station_number.to_be_bytes()[0]);
-//                vec.push(station_number.to_be_bytes()[1]);
-//                vec
-//            }
-//            Message::Welcome(command, number_stations) => {
-//                let mut vec = vec!(*command);
-//                vec.push(number_stations.to_be_bytes()[0]);
-//                vec.push(number_stations.to_be_bytes()[1]);
-//                vec
-//            }
-//        };
-//        stream.lock().unwrap().write_all(&vec);
-//        stream.lock().unwrap().flush();
-//    }
-//}
+struct Message {
+    command: u8,
+    message_type: MessageType,
+}
 
-enum Message {
-    Short (u8, u16),
-    Long (u8, u8, Vec<u8>),
+enum MessageType {
+    Data (u16),
+    Text (u8, Vec<u8>),
+}
+
+struct Station {
+    song_path: String,
+    udp_ports: Arc<RwLock<Vec<u16>>>,
+}
+
+impl Station {
+    fn new(song_path: String,
+           udp_ports: Vec<u16>) -> Result<Self> {
+        if let Err(error) = File::open(&song_path) {
+            return Err(error)
+        }
+        Ok(Station {
+            song_path,
+            udp_ports: Arc::new(RwLock::new(udp_ports)),
+        })
+    }
+    fn get_song_path_len(&self) -> u8 {
+        self.song_path.len() as u8
+    }
 }
 
 impl Message {
@@ -55,10 +46,17 @@ impl Message {
            message: Vec<u8>) -> Result<Self> {
         match &command {
             0 | 1 | 2 => {
-                Ok(Message::Short(command, data))
+                //Ok(Message.MessageType::Short(command, data))
+                Ok(Message {
+                    command,
+                    message_type: MessageType::Data(data)
+                })
             }
             3 | 4 => {
-                Ok(Message::Long(command, message_length, message))
+                Ok(Message {
+                    command,
+                    message_type: MessageType::Text(message_length, message)
+                })
             }
             _ => {
                 eprintln!("Received command other than 0-4, in Message::new()):
@@ -68,18 +66,18 @@ impl Message {
         }
     }
     fn send(&self, stream: Arc<Mutex<TcpStream>>) -> Result<()> {
-        let buf: Vec<u8> = match self {
-            Message::Short(command, data) => {
+        let buf: Vec<u8> = match &self.message_type {
+            MessageType::Data(data) => {
                 //let mut vec = vec!(*command);
                 //vec.push(data.to_be_bytes()[0]);
                 //vec.push(data.to_be_bytes()[1]);
-                let vec = vec!(*command,
+                let vec = vec!(self.command,
                                data.to_be_bytes()[0],
                                data.to_be_bytes()[1]);
                 vec
             }
-            Message::Long(command, message_length, message) => {
-                let mut vec = vec!(*command, *message_length);
+            MessageType::Text(message_length, message) => {
+                let mut vec = vec!(self.command, *message_length);
                 //vec.push(*message);
                 for i in message {
                     vec.push(*i);
@@ -132,53 +130,89 @@ impl Message {
                           expected_command: u8) -> Result<Self> {
         match Message::receive(stream) {
             Ok(message) => {
+                if message.command == expected_command {
+                    Ok(message)
+                } else {
+                    eprintln!("The message received had command type {}, /
+                               instead of the expected {}. Exiting.",
+                               &message.command,
+                               &expected_command);
+                    std::process::exit(1)
+                }
             }
-
+            Err(error) => Err(error),
         }
     }
 }
 
-pub fn handle_client(stream: Arc<Mutex<TcpStream>>) -> Result<()> {
-    // 1. receive hello
-
-    match Message::receive(stream) {
-        Ok(Message::Short(command, data)) => {
-            if command == 0 {
-                //TODO save udp_port in data to some struct?
-            } else {
-                eprintln!("Received a non-hello short message in handshake, /
-                           exiting.");
-                std::process::exit(1)
-            }
-        }
-        Ok(Message::Long(command, message_length, message)) => {
-            eprintln!("Received a non-short message in handshake, exiting.");
-            eprintln!("{}, {}, {:?}", command, message_length, message);
-            std::process::exit(1)
-        }
-        Err(error) => {
-            eprintln!("Received an error while expecting hello: {}", error);
-            std::process::exit(1)
-        }
+pub fn interact_with_server(stream: Arc<Mutex<TcpStream>>,
+                            client_udp_port: u16) -> Result<()> {
+    // 1. send hello
+    let hello: Message = Message::new(0, client_udp_port, 0, Vec::new())?;
+    let _ = hello.send(stream.clone());
+    println!("sent hello");
+    // 2. receive welcome
+    let mut number_stations_temp: u16 = 65535;
+    let welcome: Message = Message::receive_and_expect(stream.clone(), 2)?;
+    println!("received welcome");
+    if let MessageType::Data(number_stations) = welcome.message_type {
+        // 3. save number_stations in local struct TODO
+        number_stations_temp = number_stations;
+        // 4. print required message
+        println!("Welcome to Snowcast! The server has {} stations.",
+                 &number_stations);
     }
-    // 2. save client_udp_port in local structure
+    let number_stations: u16 = number_stations_temp;
+    // 5. send set_station message in loop
+    loop {
+        println!("What station would you like to select? If you're done, \
+                  press \"q\" to exit.");
+        let mut input = String::new();
+        let _ = std::io::stdin().read_line(&mut input);
+        let input: Vec<String> = input.split_whitespace().map(String::from).collect();
+        //println!("{:?}", input);
+        let station_number = if input.len() == 1 && input[0] == "q" {
+            std::process::exit(1);
+        } else if input.len() != 1 || input[0].parse::<u16>().is_err() {
+            eprintln!("Pick a station from 0 to {} or quit with \"q\".", &number_stations);
+            continue// 'input
+        } else {
+            input[0].parse::<u16>().unwrap()
+        };
 
+        let set_station: Message = Message::new(
+            1, station_number, 0, Vec::new())?;
+        set_station.send(stream.clone());
+        //set_station(&stream, station_number)?;
+        println!("You selected station {}.", &station_number);
+    }
+}
 
+pub fn handle_client(stream: Arc<Mutex<TcpStream>>,
+                     song_path_vec: Vec<String>) -> Result<()> {
+    // 1. receive hello
+    let mut client_udp_port_temp: u16 = 65535;
+    let hello: Message = Message::receive_and_expect(stream.clone(), 0)?;
+    if let MessageType::Data(udp_port) = hello.message_type {
+        // 2. save client_udp_port in local structure TODO
+        client_udp_port_temp = udp_port;
+    }
+    let client_udp_port: u16 = client_udp_port_temp;
 
     // 3. reply with the number of stations available in a welcome
-
-    let welcome = Message::new(2, song_path_vec_len, 0, Vec::new())?;
-    welcome.send(stream);
+    let welcome = Message::new(2, song_path_vec.len() as u16, 0, Vec::new())?;
+    //let stream_clone = stream.clone();
+    welcome.send(stream.clone());
 
     // 4. start a loop to wait for set station with client
 
     loop {
-        Message::receive(stream)
-
+        //let stream_clone = stream.clone();
+        let set_station = Message::receive_and_expect(stream.clone(), 1)?;
+        if let MessageType::Data(station_number) = set_station.message_type {
+            // 5. receive a station number from client, and add udp port to a 
+            // shareable struct that will be used in a udp_player loop
+        }
+        // 6. announce song playing on new station
     }
-
-    // 5. receive a station number from client, and add udp port to a shareable
-    //    struct that will be used in a udp_player loop
-    // 6. 
-    Ok(())
 }

@@ -1,6 +1,7 @@
 use std::thread;
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
-use snowcast::structs::{self, all_station_player, Station};
+//use snowcast::structs::{self, all_station_player, Station};
+use snowcast::structs::{self, handle_client};
 use std::sync::{Arc, Mutex, RwLock};
 use std::io::Result;
 use std::io::ErrorKind;
@@ -42,9 +43,10 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
         match stream {
             Ok(stream) => {
                 println!("New connection: {}", &stream.peer_addr().unwrap());
+                let song_path_vec_clone = song_path_vec.clone();
 
                 thread::spawn(move|| {
-                    structs::handle_client()
+                    structs::handle_client(Arc::new(Mutex::new(stream)), song_path_vec_clone)
                 });
                 //println!("connection ended with {}", &stream_peer_add_copy)
             }

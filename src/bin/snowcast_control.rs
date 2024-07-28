@@ -1,8 +1,9 @@
 use std::env;
 use std::io::Result;
 use std::net::{Ipv4Addr, TcpStream};
-use std::sync::Mutex;
-use snowcast::structs::{initiate_handshake, set_station};
+use std::sync::{Arc, Mutex};
+//use snowcast::structs::{initiate_handshake, set_station};
+use snowcast::structs::interact_with_server;
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -33,42 +34,47 @@ fn main() -> Result<()> {
     };
 
     let args3_parse = args[3].parse::<u16>();
-    let udp_port = if let Ok(_) = args3_parse {
+    let client_udp_port = if let Ok(_) = args3_parse {
         args3_parse.unwrap()
     } else {
         panic!("The third argument (<udp_port>) must be an integer \
                 from 0 to 65535");
     };
 
+    //TODO improve argument parsing bc this is dogshit
+
     let full_address = format!("{}:{}", server_name, server_port);
     println!("{}", &full_address);
-    println!("test");
+    //println!("test");
 
-    let stream = TcpStream::connect(&full_address)?;// {
-    let stream = Mutex::new(stream);
+    let stream = TcpStream::connect(&full_address)?;
+    let stream = Arc::new(Mutex::new(stream));
 
     println!("Connected to server at {}", &full_address);
 
-    let welcome = initiate_handshake(&stream, &udp_port)?;
+    let _ = interact_with_server(stream, client_udp_port);
+    Ok(())
 
-    loop {
-        println!("What station would you like to select? If you're done, \
-                  press \"q\" to exit.");
-        let mut input = String::new();
-        let _ = std::io::stdin().read_line(&mut input);
-        let input: Vec<String> = input.split_whitespace().map(String::from).collect();
-        //println!("{:?}", input);
-        let station_number = if input.len() == 1 && input[0] == "q" {
-            std::process::exit(1);
-        } else if input.len() != 1 || input[0].parse::<u16>().is_err() {
-            eprintln!("Pick a station from 0 to {} or quit with \"q\".", welcome.number_stations);
-            continue// 'input
-        } else {
-            input[0].parse::<u16>().unwrap()
-        };
+    //let welcome = initiate_handshake(&stream, &udp_port)?;
 
-        set_station(&stream, station_number)?;
-        println!("selected station {}", &station_number);
-    };
+    //loop {
+    //    println!("What station would you like to select? If you're done, \
+    //              press \"q\" to exit.");
+    //    let mut input = String::new();
+    //    let _ = std::io::stdin().read_line(&mut input);
+    //    let input: Vec<String> = input.split_whitespace().map(String::from).collect();
+    //    //println!("{:?}", input);
+    //    let station_number = if input.len() == 1 && input[0] == "q" {
+    //        std::process::exit(1);
+    //    } else if input.len() != 1 || input[0].parse::<u16>().is_err() {
+    //        eprintln!("Pick a station from 0 to {} or quit with \"q\".", welcome.number_stations);
+    //        continue// 'input
+    //    } else {
+    //        input[0].parse::<u16>().unwrap()
+    //    };
+
+    //    set_station(&stream, station_number)?;
+    //    println!("selected station {}", &station_number);
+    //};
 }
 
