@@ -49,20 +49,31 @@ pub struct InvalidCommand {
 #[derive(Debug)]
 pub struct Station {
     pub song_path: String,
-    pub udp_ports: Arc<Mutex<Vec<u16>>>,
+    pub udp_ports: Arc<RwLock<Vec<u16>>>,
+
     //pub port_ind_running: Vec<bool>,
 }
 
 impl Station {
-    pub fn new(song_path: String, udp_ports: Arc<Mutex<Vec<u16>>>) -> Self {
+    pub fn new(song_path: String, udp_ports: Arc<RwLock<Vec<u16>>>) -> Self {
         Self {
             song_path, 
             udp_ports,
         }
     }
     pub fn add_udp_port(&self, new_udp_port: u16) {
-        let _ = &self.udp_ports.lock().unwrap().push(new_udp_port);
+        let _ = &self.udp_ports.write()
+                               .unwrap()
+                               .push(new_udp_port);
     }
+    pub fn remove_udp_port(&self, removed_udp_port: u16) {
+        let _ = &self.udp_ports.write()
+                               .unwrap()
+                               .retain(|&x| x != removed_udp_port);
+    }
+    //pub fn change_udp_port(&self, new_udp_port: u16) {
+    //    if 
+    //}
 }
 
 impl Clone for Station {
@@ -290,7 +301,7 @@ pub fn handle_client (stream: Arc<Mutex<TcpStream>>,
                       tcp_port: u16,
                       //udp_port_vec: Arc<RwLock<Vec<u16>>>,
                       song_path_vec: Vec<String>,
-                      /*station_vec: Vec<Station>*/) -> Result<()> {
+                      station_vec: Vec<Station>) -> Result<()> {
 
     ////let hello: Hello = receive_hello(&stream)?;
     //let hello: Hello = if let MessageSC::SendMessageSC(
@@ -353,8 +364,8 @@ pub fn handle_client (stream: Arc<Mutex<TcpStream>>,
         if let Ok(MessageSC::SendMessageSC(
                 SendSC::SendSetStationSC(
                     set_station))) = receive_message(&stream, 1) {
-            //let _ = received_set_station(&stream, &set_station, &hello, &station_vec);
-            let _ = received_set_station2(&static_server_data, &station_server_data, &set_station);
+            let _ = received_set_station(&stream, &set_station, &hello, &station_vec);
+            //let _ = received_set_station2(&static_server_data, &station_server_data, &set_station);
         };
     }
 }
@@ -782,30 +793,32 @@ fn received_set_station2(static_server_data: &StaticServerData,
     Ok(())
 }
 
-//fn received_set_station(stream: &Mutex<TcpStream>,
-//                        set_station: &SetStation,
-//                        hello: &Hello,
-//                        station_vec: &Vec<Station>) -> Result<()> {
-//    if let Some(station) = station_vec.get(set_station.station_number as usize) {
-//        println!("id be amazed if this printed");
-//        station.udp_ports.lock().unwrap().push(hello.udp_port);
-//    }
-//    let mut song = [0_u8; 256];
-//    //let _ = station_vec[set_station.station_number as usize].song_path.bytes().enumerate().map(|(i, letter)| song[i] = letter);
-//    for (i, ch) in station_vec[set_station.station_number as usize]
-//                              .song_path
-//                              .bytes()
-//                              .enumerate() {
-//        if i >= 256 {
-//            break
-//        }
-//        song[i] = ch;
-//    }
-//    //println!("song: {:?}", &song);
-//    let song_len: u8 = station_vec[set_station.station_number as usize].song_path.len() as u8;
-//    let _ = send_message(stream, 3, 0, song_len, song);
-//    Ok(())
-//}
+fn received_set_station(stream: &Arc<Mutex<TcpStream>>,
+                        set_station: &SetStation,
+                        hello: &Hello,
+                        station_vec: &Vec<Station>) -> Result<()> {
+    if let Some(station) = station_vec.get(set_station.station_number as usize) {
+        println!("id be amazed if this printed");
+        //station.udp_ports.write().unwrap().push(hello.udp_port);
+        station.add_udp_port(hello.udp_port);
+        
+    }
+    let mut song = [0_u8; 256];
+    //let _ = station_vec[set_station.station_number as usize].song_path.bytes().enumerate().map(|(i, letter)| song[i] = letter);
+    for (i, ch) in station_vec[set_station.station_number as usize]
+                              .song_path
+                              .bytes()
+                              .enumerate() {
+        if i >= 256 {
+            break
+        }
+        song[i] = ch;
+    }
+    //println!("song: {:?}", &song);
+    let song_len: u8 = station_vec[set_station.station_number as usize].song_path.len() as u8;
+    let _ = send_message(stream, 3, 0, song_len, song);
+    Ok(())
+}
 
 //fn receive_set_station(stream: &Mutex<TcpStream>,
 //                       hello: &Hello,
@@ -854,12 +867,12 @@ fn received_set_station2(static_server_data: &StaticServerData,
 // }
 
 
-fn play_song_loop(static_server_data: &StaticServerData,
-                  station_server_data: &StationServerData) -> Result<()> {
-    loop {
-        let _ = play_song_chunk(static_server_data, station_server_data);
-    }
-}
+//fn play_song_loop(static_server_data: &StaticServerData,
+//                  station_server_data: &StationServerData) -> Result<()> {
+//    loop {
+//        let _ = play_song_chunk(static_server_data, station_server_data);
+//    }
+//}
 
 //struct StaticServerData {
 //    server_name: Ipv4Addr,
@@ -874,66 +887,129 @@ fn play_song_loop(static_server_data: &StaticServerData,
 //    station_number: Arc<RwLock<u16>>,
 //    open_file: Arc<Mutex<File>>,
 //}
-fn play_song_chunk(static_server_data: &StaticServerData,
-                   station_server_data: &StationServerData) -> Result<()> {
-    let time_gap = time::Duration::from_micros(62500);
-    let mut song_buf = [0_u8; 1024];
-    let station_int = station_server_data.station_number.read().unwrap().clone() as usize;
-    let mut current_file = station_server_data.open_file.lock().unwrap();
-    //let current_file: &mut File = open_file;//[server_data.station_number.read().unwrap().clone() as usize];
-    match current_file.read_exact(&mut song_buf) {
-        Ok(_) => {},
-        Err(error) => match error.kind() {
-            ErrorKind::UnexpectedEof => {
-                let _ = current_file.rewind();
-            }
-            _ => {
-                eprintln!("Issue reading file {}", static_server_data.song_path_vec[station_int]);
-                return Err(ErrorKind::InvalidData.into())
-            }
-        }
+//fn play_song_chunk(static_server_data: &StaticServerData,
+//                   station_server_data: &StationServerData) -> Result<()> {
+//    let time_gap = time::Duration::from_micros(62500);
+//    let mut song_buf = [0_u8; 1024];
+//    let station_int = station_server_data.station_number.read().unwrap().clone() as usize;
+//    let mut current_file = station_server_data.open_file.lock().unwrap();
+//    //let current_file: &mut File = open_file;//[server_data.station_number.read().unwrap().clone() as usize];
+//    match current_file.read_exact(&mut song_buf) {
+//        Ok(_) => {},
+//        Err(error) => match error.kind() {
+//            ErrorKind::UnexpectedEof => {
+//                let _ = current_file.rewind();
+//            }
+//            _ => {
+//                eprintln!("Issue reading file {}", static_server_data.song_path_vec[station_int]);
+//                return Err(ErrorKind::InvalidData.into())
+//            }
+//        }
+//    }
+//    for udp_port in station_server_data.udp_port_vec.read().unwrap().iter() {
+//        let socket: UdpSocket = UdpSocket::bind(
+//            format!("{}:{}", &static_server_data.server_name, &static_server_data.server_udp_port))?;
+//        let _ = socket.connect(format!("{}:{}", &static_server_data.server_name, &udp_port))?;
+//        let _ = socket.send(&song_buf);
+//    }
+//    thread::sleep(time_gap);
+//    Ok(())
+//}
+
+//fn play_all_songs_chunk(station_vec: Vec<Station>,
+//                        server_name: Ipv4Addr,
+//                        open_file_vec: Arc<Mutex<Vec<File>>>) -> Result<()> {
+//    let time_gap = time::Duration::from_micros(62500);
+//    //let smaller_time_gap = time::Duration::from_millis(5);
+//    for (i, song) in station_vec.iter().enumerate() {
+//        //let file = File::open(song.song_path)?;
+//        let mut song_buf = [0_u8; 1024];
+//        let mut current_file = open_file_vec.lock().unwrap();
+//        let current_file = current_file.get_mut(i).unwrap();
+//        match current_file.read_exact(&mut song_buf) {
+//            Ok(_) => {},
+//            Err(error) => match error.kind() {
+//                ErrorKind::UnexpectedEof => {
+//                    let _ = current_file.rewind();
+//                }
+//                _ => {
+//                    panic!("some other error");
+//                }
+//            }
+//
+//        };
+//        for udp_port in song.udp_ports.lock().unwrap().iter() {
+//            let socket: UdpSocket = UdpSocket::bind("127.0.0.1:7878")?;
+//            let _ = socket.connect(format!("{}:{}", &server_name, &udp_port));
+//            let _ = socket.send(&song_buf);
+//            //thread::sleep(smaller_time_gap);
+//        }
+//    }
+//    thread::sleep(time_gap);
+//    Ok(())
+//}
+
+pub fn all_station_player(song_path_vec: &Vec<String>,
+                      //station_vec: Vec<Station>,
+                      server_name: Ipv4Addr,
+                      server_udp: u16,
+                      client_udp_vec: Vec<Arc<RwLock<Vec<u16>>>>) -> Result<()> {
+
+    for (i, song_path) in song_path_vec.iter().enumerate() {
+        let song_path_clone = song_path.clone();
+        let client_udp_clone = client_udp[i].clone();
+        thread::spawn(move || station_loop(song_path_clone,
+                                           server_name,
+                                           server_udp,
+                                           client_udp_clone));
     }
-    for udp_port in station_server_data.udp_port_vec.read().unwrap().iter() {
-        let socket: UdpSocket = UdpSocket::bind(
-            format!("{}:{}", &static_server_data.server_name, &static_server_data.server_udp_port))?;
-        let _ = socket.connect(format!("{}:{}", &static_server_data.server_name, &udp_port))?;
-        let _ = socket.send(&song_buf);
-    }
-    thread::sleep(time_gap);
     Ok(())
 }
 
-fn play_all_songs_chunk(station_vec: Vec<Station>,
-                        server_name: Ipv4Addr,
-                        open_file_vec: Arc<Mutex<Vec<File>>>) -> Result<()> {
-    let time_gap = time::Duration::from_micros(62500);
-    //let smaller_time_gap = time::Duration::from_millis(5);
-    for (i, song) in station_vec.iter().enumerate() {
-        //let file = File::open(song.song_path)?;
-        let mut song_buf = [0_u8; 1024];
-        let mut current_file = open_file_vec.lock().unwrap();
-        let current_file = current_file.get_mut(i).unwrap();
-        match current_file.read_exact(&mut song_buf) {
-            Ok(_) => {},
-            Err(error) => match error.kind() {
-                ErrorKind::UnexpectedEof => {
-                    let _ = current_file.rewind();
-                }
-                _ => {
-                    panic!("some other error");
-                }
-            }
+/// Opens file and gives it to station_chunk_player in a loop
+fn station_loop(song_path: String,
+                server_name: Ipv4Addr,
+                server_udp: u16,
+                client_udp: Arc<RwLock<Vec<u16>>>) -> Result<File> {
+    let mut file: File = File::open(&song_path)?;
+    let time_gap = time::Duration::from_millis(62500);
+    loop {
+        file = station_chunk_player(file, &song_path, &server_name, &server_udp, &client_udp)?;
+        thread::sleep(time_gap);
+    }
+}
 
-        };
-        for udp_port in song.udp_ports.lock().unwrap().iter() {
-            let socket: UdpSocket = UdpSocket::bind("127.0.0.1:7878")?;
-            let _ = socket.connect(format!("{}:{}", &server_name, &udp_port));
-            let _ = socket.send(&song_buf);
-            //thread::sleep(smaller_time_gap);
+/// Takes an open file, a song path/name, a server name, server and
+/// client udp ports, and writes a 1024 byte song buffer to all given udp
+/// clients. Does not implement a time gap, so one needs to be added to reach
+/// a certain bit rate.
+fn station_chunk_player(mut file: File,
+                        song_path: &str,
+                        server_name: &Ipv4Addr,
+                        server_udp: &u16,
+                        client_udp: &Arc<RwLock<Vec<u16>>>) -> Result<File> {
+    let mut song_buf = [0_u8; 256];
+    match file.read_exact(&mut song_buf) {
+        Ok(_) => {},
+        Err(error) => match error.kind() {
+            ErrorKind::UnexpectedEof => {
+                let _ = file.rewind();
+            }
+            _ => {
+                eprintln!("Error reading file: {}", song_path);
+                //return Err(ErrorKind::InvalidInput.into())
+                return Err(error)
+            }
         }
     }
-    thread::sleep(time_gap);
-    Ok(())
+
+    let socket: UdpSocket = UdpSocket::bind(format!("{}:{}", &server_name, &server_udp))?;
+    for udp in client_udp.read().unwrap().iter() {
+        let _ = socket.connect(format!("{}:{}", &server_name, &udp));
+        let _ = socket.send(&song_buf);
+    }
+
+    Ok(file)
 }
 
 //

@@ -1,7 +1,7 @@
 use std::thread;
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
-use snowcast::structs::{self, play_loop, Station};
-use std::sync::{Mutex, Arc};
+use snowcast::structs::{self, all_station_player, Station};
+use std::sync::{Arc, Mutex, RwLock};
 use std::io::Result;
 use std::io::ErrorKind;
 use std::fs::File;
@@ -25,33 +25,40 @@ fn get_args() -> Result<(u16, Vec<String>), > {
         return Err(ErrorKind::InvalidInput.into())
         //std::process::exit(1);
     };
-    let file_vec: Vec<String> = args[2..].to_vec();
+    let song_path_vec: Vec<String> = args[2..].to_vec();
     //let file_vec: Vec<&str> = args[2..].to_vec();
 
-    Ok((tcp_port, file_vec))
+    Ok((tcp_port, song_path_vec))
 }
 
 fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
-    let (tcp_port, file_vec) = get_args()?;
+    let (tcp_port, song_path_vec) = get_args()?;
 
     let server_name = "127.0.0.1".parse::<Ipv4Addr>().unwrap();
+    let server_udp = "7878".parse::<u16>().unwrap();
     //let tcp_port = "16800";
-    let mut open_file_vec = Vec::new();
+    //let mut open_file_vec = Vec::new();
 
-    let mut station_vec = Vec::new();
-    for file_path in &file_vec {
-        station_vec.push(Station::new(file_path.to_owned(), Arc::new(Mutex::new(Vec::new()))));
-        open_file_vec.push(File::open(file_path).unwrap());
-    }
+    //let mut station_vec = Vec::new();
+    //for file_path in &file_vec {
+    //    station_vec.push(Station::new(file_path.to_owned(), Arc::new(Mutex::new(Vec::new()))));
+    //    open_file_vec.push(File::open(file_path).unwrap());
+    //}
+    let client_udp_vec: Vec<Arc<RwLock<Vec<u16>>>> = Vec::new();
 
     let open_file_vec = Arc::new(Mutex::new(open_file_vec));
     //let station_vec: Arc<Mutex<Vec<Station>>> = Arc::new(Mutex::new(station_vec));
-    let station_vec_clone = station_vec.clone();
+    //let station_vec_clone = station_vec.clone();
     //let station_vec_clone = station_vec
 
 
     //thread::spawn(move|| play_loop(station_vec_clone, server_name, open_file_vec));
-
+    thread::spawn(move || all_station_player(&song_path_vec,
+                                             server_name,
+                                             server_udp,
+                                             client_udp_vec
+                                             )
+    );
 
     //let number_stations: u16 = file_vec.len(); //TODO implement number_stations into response
     println!("listening test");
