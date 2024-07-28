@@ -36,48 +36,15 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
 
     let server_name = "127.0.0.1".parse::<Ipv4Addr>().unwrap();
     let server_udp = "7878".parse::<u16>().unwrap();
-    //let tcp_port = "16800";
-    //let mut open_file_vec = Vec::new();
 
-    //let mut station_vec = Vec::new();
-    //for file_path in &file_vec {
-    //    station_vec.push(Station::new(file_path.to_owned(), Arc::new(Mutex::new(Vec::new()))));
-    //    open_file_vec.push(File::open(file_path).unwrap());
-    //}
-    let client_udp_vec: Vec<Arc<RwLock<Vec<u16>>>> = Vec::new();
-
-    let open_file_vec = Arc::new(Mutex::new(open_file_vec));
-    //let station_vec: Arc<Mutex<Vec<Station>>> = Arc::new(Mutex::new(station_vec));
-    //let station_vec_clone = station_vec.clone();
-    //let station_vec_clone = station_vec
-
-
-    //thread::spawn(move|| play_loop(station_vec_clone, server_name, open_file_vec));
-    thread::spawn(move || all_station_player(&song_path_vec,
-                                             server_name,
-                                             server_udp,
-                                             client_udp_vec
-                                             )
-    );
-
-    //let number_stations: u16 = file_vec.len(); //TODO implement number_stations into response
-    println!("listening test");
     let listener = TcpListener::bind(format!("{}:{}", &server_name, &tcp_port))?;
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 println!("New connection: {}", &stream.peer_addr().unwrap());
-                //let stream_peer_add_copy = &stream.peer_addr().unwrap();
-                //let file_vec_clone = file_vec.clone();
-                //let (tx, rx) = mpsc::channel();
-                let stream: Mutex<TcpStream> = Mutex::new(stream);
-                //let active_stations = Arc::new(Mutex::new(HashMap::new()));
-                let file_vec_clone = file_vec.clone();
-                let station_vec_clone = station_vec.clone();
-                //let station_vec_clone = station_vec.clone();
 
                 thread::spawn(move|| {
-                    structs::handle_client(stream, server_name, file_vec_clone, station_vec_clone)
+                    structs::handle_client()
                 });
                 //println!("connection ended with {}", &stream_peer_add_copy)
             }
