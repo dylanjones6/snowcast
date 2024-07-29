@@ -1,7 +1,7 @@
 use std::thread;
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 //use snowcast::structs::{self, all_station_player, Station};
-use snowcast::structs::{self, handle_client};
+use snowcast::structs::{self, handle_client, Station};
 use std::sync::{Arc, Mutex, RwLock};
 use std::io::Result;
 use std::io::ErrorKind;
@@ -37,6 +37,16 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
 
     let server_name = "127.0.0.1".parse::<Ipv4Addr>().unwrap();
     let server_udp = "7878".parse::<u16>().unwrap();
+    //let station_vec: Arc<Mutex<Vec<Station>>> = Arc::new(Mutex::new(Vec::new()));
+    //for song in song_path_vec.clone() {
+    //    let station_temp: Station = Station::new(song, Vec::new())?;
+    //    station_vec.lock().unwrap().push(station_temp)
+    //}
+     let mut station_vec: Vec<Station> = Vec::new();
+    for song in song_path_vec.clone() {
+        let station_temp: Station = Station::new(song, Vec::new())?;
+        station_vec.push(station_temp)
+    }
 
     let listener = TcpListener::bind(format!("{}:{}", &server_name, &tcp_port))?;
     for stream in listener.incoming() {
@@ -44,9 +54,13 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
             Ok(stream) => {
                 println!("New connection: {}", &stream.peer_addr().unwrap());
                 let song_path_vec_clone = song_path_vec.clone();
-
-                thread::spawn(move|| {
-                    structs::handle_client(Arc::new(Mutex::new(stream)), song_path_vec_clone)
+                let mut station_vec_clone = Vec::new();
+                for i in &station_vec {
+                    let i = i.clone();
+                    station_vec_clone.push(i);
+                }
+                thread::spawn(move || {
+                    structs::handle_client(Arc::new(Mutex::new(stream)), song_path_vec_clone, station_vec_clone)
                 });
                 //println!("connection ended with {}", &stream_peer_add_copy)
             }
