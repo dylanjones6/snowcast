@@ -1,6 +1,6 @@
 //use core::slice::SlicePattern;
 use std::net::{TcpStream, UdpSocket, Ipv4Addr};
-use std::io::{Error, ErrorKind, Read, Result, Seek, Write};
+use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::fs::File;
 use std::string::FromUtf8Error;
 use std::sync::{Mutex, Arc, RwLock};
@@ -236,9 +236,11 @@ pub fn handle_client(stream: Arc<Mutex<TcpStream>>,
             // let station_got = station_vec_lock.get(station_number as usize);
             //let station_vec_clone = station_vec.clone();
             let station_opt = Some(station_vec.get(station_number as usize).unwrap());
+            println!("\n\n\nstuck ahead of stat\n\n\n");
             if let Some(station) = station_opt {
                 station.udp_ports.write().unwrap().push(client_udp_port);
             }
+            println!("\n\n\nstuck ahead of prev_stat\n\n\n");
             if let Some(prev_station) = prev_station_opt {
                 prev_station.udp_ports.write().unwrap().retain(|&x| x != client_udp_port);
             }
@@ -259,4 +261,90 @@ pub fn handle_client(stream: Arc<Mutex<TcpStream>>,
             let _ = announce.send(stream.clone());
         }
     }
+}
+
+pub fn play_all_loops(server_name: Ipv4Addr,
+                      server_udp_port: u16,
+                      station_vec: Vec<Station>) -> Result<()> {
+    for station in station_vec {
+        let file = Arc::new(Mutex::new(File::open(&station.song_path).unwrap()));
+        //let _ = play_song_loop(&file, &station.song_path, server_name, server_udp_port, &station.udp_ports);
+        println!("spawning playing thread");
+        thread::spawn(move || play_song_loop(file, station.song_path, server_name, server_udp_port, station.udp_ports));
+    }
+    Ok(())
+}
+
+fn play_song_loop(file: Arc<Mutex<File>>,
+                  song_path: String,
+                  server_name: Ipv4Addr,
+                  server_udp_port: u16,
+                  client_udp_port_vec: Arc<RwLock<Vec<u16>>>) -> Result<()> {
+    println!("thread spawned!");
+    let time_gap = std::time::Duration::from_micros(62500);
+    let file_len = File::open(&song_path).unwrap().seek(std::io::SeekFrom::End(0)).unwrap();
+    println!("\n\n\nfile_len: {:?}\n\n\n", file_len);
+    loop {
+        let progress = file.clone().lock().unwrap().stream_position().unwrap();
+        let rel_pos = progress.clone() as f64 / file_len.clone() as f64;
+        println!("rel_pos: {}", &rel_pos);
+        println!("progress: {}", &progress);
+        println!("file_len: {}", &file_len);
+        let _ = play_song_chunk(file.clone(),
+                                song_path.clone(),
+                                server_name,
+                                server_udp_port,
+                                client_udp_port_vec.clone(),
+        );
+        thread::sleep(time_gap);
+    }
+}
+
+fn play_song_chunk(file: Arc<Mutex<File>>,
+                   song_path: String,
+                   server_name: Ipv4Addr,
+                   server_udp_port: u16,
+                   client_udp_port_vec: Arc<RwLock<Vec<u16>>>) -> Result<()> {
+    const BUF_LEN: u64 = 1024;
+    let mut song_buf = [0_u8; BUF_LEN as usize];
+    //match file.lock().unwrap().read_exact(&mut song_buf) {
+    //    Ok(_) => {},
+    //    Err(error) => match error.kind() {
+    //        ErrorKind::UnexpectedEof => {
+    //            let _ = file.lock().unwrap().rewind();
+    //            println!("\n\n\n\n\n\n\nend of file reached!");
+    //        }
+    //        _ => {
+    //            eprintln!("Error reading file: {}", song_path);
+    //        }
+    //    }
+    //}
+    let file_len = File::open(&song_path).unwrap().seek(std::io::SeekFrom::End(0)).unwrap();
+    let current_pos = file.lock().unwrap().stream_position().unwrap();
+
+    song_buf = if current_pos + BUF_LEN > file_len {
+        let _ = file.lock().unwrap().read_exact(&mut song_buf);
+        let _ = file.lock().unwrap().seek(SeekFrom::Start(0));
+        song_buf
+    } else {
+        let _ = file.lock().unwrap().read_exact(&mut song_buf);
+        song_buf
+    };
+    println!("read file in {}: {:?}", &song_path, std::time::SystemTime::now());
+    let socket: UdpSocket = UdpSocket::bind(format!("{}:{}", server_name, server_udp_port))?;
+    //let client_udp_port
+    //let client_udp_port_vec_read = 'read: loop {
+    //    let client_udp_port_vec_read_opt = Some(client_udp_port_vec.read().unwrap());
+    //    if let Some(client_udp_port_vec_read) = client_udp_port_vec_read_opt {
+    //        break 'read client_udp_port_vec_read
+    //        //break 'read
+    //    }
+    //};
+    println!("{:?}", client_udp_port_vec.read().unwrap());
+    for udp in client_udp_port_vec.read().unwrap().iter() {
+        println!("{}", &udp);
+        let _ = socket.connect(format!("{}:{}", server_name, udp));
+        let _ = socket.send(&song_buf);
+    }
+    Ok(())
 }

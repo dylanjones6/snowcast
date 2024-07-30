@@ -1,7 +1,7 @@
 use std::thread;
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 //use snowcast::structs::{self, all_station_player, Station};
-use snowcast::structs::{self, handle_client, Station};
+use snowcast::structs::{self, play_all_loops, handle_client, Station};
 use std::sync::{Arc, Mutex, RwLock};
 use std::io::Result;
 use std::io::ErrorKind;
@@ -47,6 +47,8 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
         let station_temp: Station = Station::new(song, Vec::new())?;
         station_vec.push(station_temp)
     }
+
+    let _ = play_all_loops(server_name, server_udp, station_vec.clone());
 
     let listener = TcpListener::bind(format!("{}:{}", &server_name, &tcp_port))?;
     for stream in listener.incoming() {
