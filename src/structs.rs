@@ -177,6 +177,8 @@ pub fn interact_with_server(stream: Arc<Mutex<TcpStream>>,
                  &number_stations);
     }
     let number_stations: u16 = number_stations_temp;
+    let stream_clone = stream.clone();
+    thread::spawn(move || wait_for_announce(stream_clone));
     // 5. send set_station message in loop
     loop {
         println!("What station would you like to select? If you're done, \
@@ -199,6 +201,18 @@ pub fn interact_with_server(stream: Arc<Mutex<TcpStream>>,
         let _ = set_station.send(stream.clone());
         //set_station(&stream, station_number)?;
         println!("You selected station {}.", &station_number);
+    }
+}
+
+//TODO do something with received announce now
+fn wait_for_announce(stream: Arc<Mutex<TcpStream>>) -> Option<Message> {
+    loop {
+        let mut buf = [0_u8; 258];
+        let _ = stream.lock().unwrap().peek(&mut buf);
+        if buf[0] == 3 {
+            //stream.lock().unwrap().read_exact(&mut buf.unwrap())?;
+            return Some(Message::receive_and_expect(stream.clone(), 3).unwrap())
+        }
     }
 }
 
