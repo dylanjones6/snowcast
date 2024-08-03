@@ -7,12 +7,15 @@ use std::sync::{Mutex, Arc, RwLock};
 use std::{thread, time};
 //use crate::structs;
 use byteorder::{ByteOrder, NetworkEndian};
+use std::sync::mpsc::{channel, Sender};
 
+#[derive(Debug)]
 struct Message {
     command: u8,
     message_type: MessageType,
 }
 
+#[derive(Debug)]
 enum MessageType {
     Data (u16),
     Text (u8, [u8; 256]),
@@ -74,7 +77,7 @@ impl Message {
             }
         }
     }
-    fn send(&self, stream: Arc<Mutex<TcpStream>>) -> Result<()> {
+    fn send(&self, stream: Arc<RwLock<TcpStream>>) -> Result<()> {
         let buf: [u8; 258] = match &self.message_type {
             MessageType::Data(data) => {
                 let mut arr_temp = [0_u8; 258];
@@ -95,14 +98,14 @@ impl Message {
                 arr
             }
         };
-        stream.lock().unwrap().write_all(&buf);
-        stream.lock().unwrap().flush();
+        stream.write().unwrap().write_all(&buf);
+        stream.write().unwrap().flush();
         Ok(())
     }
-    fn receive(stream: Arc<Mutex<TcpStream>>) -> Result<Self> {
+    fn receive(stream: Arc<RwLock<TcpStream>>) -> Result<Self> {
         //let mut buf = Vec::new();
         let mut buf = [0_u8; 258];
-        match stream.lock().unwrap().read_exact(&mut buf) {
+        match stream.write().unwrap().read_exact(&mut buf) {
             Ok(_n_bytes) => {
                 match &buf[0] {
                     0 | 1 | 2 => {
@@ -140,7 +143,7 @@ impl Message {
             }
         }
     }
-    fn receive_and_expect(stream: Arc<Mutex<TcpStream>>,
+    fn receive_and_expect(stream: Arc<RwLock<TcpStream>>,
                           expected_command: u8) -> Result<Self> {
         match Message::receive(stream) {
             Ok(message) => {
@@ -159,7 +162,7 @@ impl Message {
     }
 }
 
-pub fn interact_with_server(stream: Arc<Mutex<TcpStream>>,
+pub fn interact_with_server(stream: Arc<RwLock<TcpStream>>,
                             client_udp_port: u16) -> Result<()> {
     // 1. send hello
     let hello: Message = Message::new(0, client_udp_port, 0, [0_u8; 256])?;
@@ -177,8 +180,8 @@ pub fn interact_with_server(stream: Arc<Mutex<TcpStream>>,
                  &number_stations);
     }
     let number_stations: u16 = number_stations_temp;
-    let stream_clone = stream.clone();
-    thread::spawn(move || wait_for_announce(stream_clone));
+    //let stream_clone = stream.clone();
+    //thread::spawn(move || wait_for_announce(stream_clone));
     // 5. send set_station message in loop
     loop {
         println!("What station would you like to select? If you're done, \
@@ -196,27 +199,45 @@ pub fn interact_with_server(stream: Arc<Mutex<TcpStream>>,
             input[0].parse::<u16>().unwrap()
         };
 
+        println!("You selected station {}.", &station_number);
+        let stream_clone = stream.clone();
+        let announcement_opt = thread::spawn(move || wait_for_announce(stream_clone));
+        let announcement = announcement_opt.join();
+        println!("announcement: {:?}", &announcement);
         let set_station: Message = Message::new(
             1, station_number, 0, [0_u8; 256])?;
         let _ = set_station.send(stream.clone());
         //set_station(&stream, station_number)?;
-        println!("You selected station {}.", &station_number);
     }
 }
 
 //TODO do something with received announce now
-fn wait_for_announce(stream: Arc<Mutex<TcpStream>>) -> Option<Message> {
+fn wait_for_announce(stream: Arc<RwLock<TcpStream>>) -> Option<Message> {
     loop {
         let mut buf = [0_u8; 258];
-        let _ = stream.lock().unwrap().peek(&mut buf);
+        let _ = stream.read().unwrap().peek(&mut buf);
         if buf[0] == 3 {
-            //stream.lock().unwrap().read_exact(&mut buf.unwrap())?;
+            //stream.read().unwrap().read_exact(&mut buf.unwrap())?;
             return Some(Message::receive_and_expect(stream.clone(), 3).unwrap())
         }
     }
 }
 
-pub fn handle_client(stream: Arc<Mutex<TcpStream>>,
+fn wait_for_announce2(stream: Arc<RwLock<TcpStream>>, tx: Sender<Option<Message>>) -> Result<()>/*Option<Message>*/ {
+    loop {
+        let mut buf = [0_u8; 258];
+        let _ = stream.read().unwrap().peek(&mut buf);
+        if buf[0] == 3 {
+            //stream.lock().unwrap().read_exact(&mut buf.unwrap())?;
+            //return Some(Message::receive_and_expect(stream.clone(), 3).unwrap())
+            let _ = tx.send(Some(Message::receive_and_expect(stream.clone(), 3).unwrap()));
+            return Ok(())
+        }
+    }
+}
+//fn wait_for_announce2(stream: Arc<RwLock<TcpStream>>) -> Option<
+
+pub fn handle_client(stream: Arc<RwLock<TcpStream>>,
                      song_path_vec: Vec<String>,
                      station_vec: Vec<Station>) -> Result<()> {
     // 1. receive hello

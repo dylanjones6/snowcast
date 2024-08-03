@@ -62,7 +62,7 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
                     station_vec_clone.push(i);
                 }
                 thread::spawn(move || {
-                    structs::handle_client(Arc::new(Mutex::new(stream)), song_path_vec_clone, station_vec_clone)
+                    structs::handle_client(Arc::new(RwLock::new(stream)), song_path_vec_clone, station_vec_clone)
                 });
                 //println!("connection ended with {}", &stream_peer_add_copy)
             }

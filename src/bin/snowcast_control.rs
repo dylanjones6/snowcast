@@ -1,7 +1,7 @@
 use std::env;
 use std::io::Result;
 use std::net::{Ipv4Addr, TcpStream};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 //use snowcast::structs::{initiate_handshake, set_station};
 use snowcast::structs::interact_with_server;
 
@@ -48,7 +48,7 @@ fn main() -> Result<()> {
     //println!("test");
 
     let stream = TcpStream::connect(&full_address)?;
-    let stream = Arc::new(Mutex::new(stream));
+    let stream = Arc::new(RwLock::new(stream));
 
     println!("Connected to server at {}", &full_address);
 
