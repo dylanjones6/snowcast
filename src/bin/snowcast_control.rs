@@ -1,11 +1,14 @@
 use std::env;
 use std::io::Result;
-use std::net::{Ipv4Addr, TcpStream};
-use std::sync::{Arc, Mutex, RwLock};
+use std::net::Ipv4Addr;
+use tokio::net::TcpStream;
+use tokio::sync::{Mutex, RwLock};
+use std::sync::Arc;
 //use snowcast::structs::{initiate_handshake, set_station};
 use snowcast::structs::interact_with_server;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     //let args = &args[1..];
     // dbg!(args);
@@ -47,12 +50,11 @@ fn main() -> Result<()> {
     println!("{}", &full_address);
     //println!("test");
 
-    let stream = TcpStream::connect(&full_address)?;
-    let stream = Arc::new(RwLock::new(stream));
+    let stream = Arc::new(RwLock::new(TcpStream::connect(&full_address).await?));
 
     println!("Connected to server at {}", &full_address);
 
-    let _ = interact_with_server(stream, client_udp_port);
+    let _ = interact_with_server(stream, client_udp_port).await;
     Ok(())
 
     //let welcome = initiate_handshake(&stream, &udp_port)?;

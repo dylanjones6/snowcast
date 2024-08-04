@@ -1,8 +1,10 @@
 use std::thread;
-use std::net::{Ipv4Addr, TcpListener, TcpStream};
+use std::net::Ipv4Addr;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{Mutex, RwLock};
 //use snowcast::structs::{self, all_station_player, Station};
 use snowcast::structs::{self, play_all_loops, handle_client, Station};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
 use std::io::Result;
 use std::io::ErrorKind;
 use std::fs::File;
@@ -32,7 +34,8 @@ fn get_args() -> Result<(u16, Vec<String>), > {
     Ok((tcp_port, song_path_vec))
 }
 
-fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
+#[tokio::main]
+async fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
     let (tcp_port, song_path_vec) = get_args()?;
 
     let server_name = "127.0.0.1".parse::<Ipv4Addr>().unwrap();
@@ -42,27 +45,30 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
     //    let station_temp: Station = Station::new(song, Vec::new())?;
     //    station_vec.lock().unwrap().push(station_temp)
     //}
-     let mut station_vec: Vec<Station> = Vec::new();
+    let mut station_vec: Vec<Station> = Vec::new();
     for song in song_path_vec.clone() {
         let station_temp: Station = Station::new(song, Vec::new())?;
         station_vec.push(station_temp)
     }
+    //uncomment this this is just for testing
+    let _ = play_all_loops(server_name, server_udp, station_vec.clone()).await;
 
-    let _ = play_all_loops(server_name, server_udp, station_vec.clone());
-
-    let listener = TcpListener::bind(format!("{}:{}", &server_name, &tcp_port))?;
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                println!("New connection: {}", &stream.peer_addr().unwrap());
+    let listener = TcpListener::bind(format!("{}:{}", &server_name, &tcp_port)).await?;
+    loop {
+        match listener.accept().await {
+            Ok((stream, peer_addr)) => {
+                println!("New connection: {}", &peer_addr);
                 let song_path_vec_clone = song_path_vec.clone();
                 let mut station_vec_clone = Vec::new();
                 for i in &station_vec {
                     let i = i.clone();
                     station_vec_clone.push(i);
                 }
-                thread::spawn(move || {
-                    structs::handle_client(Arc::new(RwLock::new(stream)), song_path_vec_clone, station_vec_clone)
+                //thread::spawn(move || {
+                //    structs::handle_client(Arc::new(RwLock::new(stream)), song_path_vec_clone, station_vec_clone)
+                //});
+                tokio::spawn(async move {
+                    structs::handle_client(Arc::new(RwLock::new(stream)), song_path_vec_clone, station_vec_clone).await
                 });
                 //println!("connection ended with {}", &stream_peer_add_copy)
             }
@@ -71,5 +77,7 @@ fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
             }
         }
     }
-    Ok(())
+    //for stream in listener.incoming() {
+    //}
+    //Ok(())
 }
