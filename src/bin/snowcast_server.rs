@@ -68,7 +68,7 @@ async fn main() -> std::io::Result<()> /*-> Result<TcpListener, _>*/ {
                 //    structs::handle_client(Arc::new(RwLock::new(stream)), song_path_vec_clone, station_vec_clone)
                 //});
                 tokio::spawn(async move {
-                    structs::handle_client(Arc::new(RwLock::new(stream)), song_path_vec_clone, station_vec_clone).await
+                    structs::handle_client(Arc::new(Mutex::new(stream)), song_path_vec_clone, station_vec_clone).await
                 });
                 //println!("connection ended with {}", &stream_peer_add_copy)
             }

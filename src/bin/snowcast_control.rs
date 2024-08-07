@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
     println!("{}", &full_address);
     //println!("test");
 
-    let stream = Arc::new(RwLock::new(TcpStream::connect(&full_address).await?));
+    let stream = Arc::new(Mutex::new(TcpStream::connect(&full_address).await?));
 
     println!("Connected to server at {}", &full_address);
 

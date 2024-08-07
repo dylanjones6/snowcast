@@ -1,7 +1,10 @@
 //use core::slice::SlicePattern;
 use std::net::Ipv4Addr;
+use std::os::unix::process;
+use std::process::exit;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
+use tokio::select;
 use tokio::sync::{Mutex, RwLock};
 use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::fs::File;
@@ -80,7 +83,7 @@ impl Message {
             }
         }
     }
-    async fn send(&self, stream: Arc<RwLock<TcpStream>>) -> Result<()> {
+    async fn send(&self, stream: Arc<Mutex<TcpStream>>) -> Result<()> {
         let buf: [u8; 258] = match &self.message_type {
             MessageType::Data(data) => {
                 let mut arr_temp = [0_u8; 258];
@@ -95,20 +98,21 @@ impl Message {
                 arr_temp[0] = self.command;
                 arr_temp[1] = *message_length;
                 for (i, ch) in message.iter().enumerate() {
-                    arr_temp[i] = *ch;
+                    arr_temp[i + 2] = *ch;
                 }
                 let arr: [u8; 258] = arr_temp;
                 arr
             }
         };
-        stream.write().await.write(&buf).await;
-        stream.write().await.flush().await;
+        println!("writing to stream!");
+        let _ = stream.lock().await.write(&buf).await;
+        let _ = stream.lock().await.flush().await;
         Ok(())
     }
-    async fn receive(stream: Arc<RwLock<TcpStream>>) -> Result<Self> {
+    async fn receive(stream: Arc<Mutex<TcpStream>>) -> Result<Self> {
         //let mut buf = Vec::new();
         let mut buf = [0_u8; 258];
-        match stream.write().await.read_exact(&mut buf).await {
+        match stream.lock().await.read_exact(&mut buf).await {
             Ok(_n_bytes) => {
                 match &buf[0] {
                     0 | 1 | 2 => {
@@ -146,8 +150,8 @@ impl Message {
             }
         }
     }
-    async fn receive_and_expect(stream: Arc<RwLock<TcpStream>>,
-                          expected_command: u8) -> Result<Self> {
+    async fn receive_and_expect(stream: Arc<Mutex<TcpStream>>,
+                                expected_command: u8) -> Result<Self> {
         match Message::receive(stream).await {
             Ok(message) => {
                 if message.command == expected_command {
@@ -163,10 +167,43 @@ impl Message {
             Err(error) => Err(error),
         }
     }
+    async fn receive_and_expect2(stream: Arc<Mutex<TcpStream>>,
+                                 expected_command: u8) -> Option<Self> {
+        let mut buf = [0_u8; 258];
+        let _ = stream.lock().await.peek(&mut buf).await;
+        if buf[0] == expected_command {
+            let _ = stream.lock().await.read_exact(&mut buf).await;
+            match &buf[0] {
+                0 | 1 | 2 => {
+                    Some(Message::new(buf[0],
+                                      NetworkEndian::read_u16(&buf[1..3]),
+                                      0,
+                                      [0_u8; 256],
+                    ).await.unwrap())
+                }
+                3 | 4 => {
+                    let mut message = [0_u8; 256];
+                    for (i, ch) in buf[2..].iter().enumerate() {
+                        message[i] = *ch;
+                    }
+                    Some(Message::new(buf[0],
+                                      0,
+                                      buf[1],
+                                      message,
+                    ).await.unwrap())
+                }
+                _ => {
+                    std::process::exit(1)
+                }
+            }
+        } else {
+            None
+        }
+    }
 }
 
-pub async fn interact_with_server(stream: Arc<RwLock<TcpStream>>,
-                            client_udp_port: u16) -> Result<()> {
+pub async fn interact_with_server(stream: Arc<Mutex<TcpStream>>,
+                                  client_udp_port: u16) -> Result<()> {
     // 1. send hello
     println!("0");
     let hello: Message = Message::new(0, client_udp_port, 0, [0_u8; 256]).await?;
@@ -174,7 +211,7 @@ pub async fn interact_with_server(stream: Arc<RwLock<TcpStream>>,
     let _ = hello.send(stream.clone()).await;
     println!("sent hello");
     // 2. receive welcome
-    let mut number_stations_temp: u16 = 65535;
+    let number_stations_temp: u16;
     let welcome: Message = Message::receive_and_expect(stream.clone(), 2).await?;
     println!("received welcome");
     if let MessageType::Data(number_stations) = welcome.message_type {
@@ -183,55 +220,118 @@ pub async fn interact_with_server(stream: Arc<RwLock<TcpStream>>,
         // 4. print required message
         println!("Welcome to Snowcast! The server has {} stations.",
                  &number_stations);
+    } else {
+        eprintln!("Received something other than the welcome message, exiting.");
+        std::process::exit(1)
     }
     let number_stations: u16 = number_stations_temp;
     //let stream_clone = stream.clone();
     //thread::spawn(move || wait_for_announce(stream_clone));
     // 5. send set_station message in loop
     loop {
-        println!("What station would you like to select? If you're done, \
-                  press \"q\" to exit.");
-        let mut input = String::new();
-        let _ = std::io::stdin().read_line(&mut input);
-        let input: Vec<String> = input.split_whitespace().map(String::from).collect();
-        //println!("{:?}", input);
-        let station_number = if input.len() == 1 && input[0] == "q" {
-            std::process::exit(1);
-        } else if input.len() != 1 || input[0].parse::<u16>().is_err() || input[0].parse::<u16>().unwrap() > (number_stations - 1) {
-            eprintln!("Pick a station from 0 to {} or quit with \"q\".", number_stations - 1);
-            continue// 'input
-        } else {
-            input[0].parse::<u16>().unwrap()
-        };
+        tokio::select! {
+            station_number = get_station_number2(number_stations) => {
+                println!("got station number");
+                let set_station: Message = Message::new(
+                    1, station_number, 0, [0_u8; 256]).await?;
+                let _ = set_station.send(stream.clone()).await;
+                // TODO sending set_station with the same value removes the 
+                // value without keeping it set?
+            }
+            announcement = Message::receive_and_expect(stream.clone(), 3) => {
+                println!("got an announcement: {:?}", &announcement);
+            }
+        }
+    }
+    //loop {
+    //    let station_number = loop {
+    //        match get_station_number(number_stations) {
+    //            Some(station_number) => break station_number,
+    //            None => continue,
+    //        }
+    //    };
+    //    println!("You selected station {}.", station_number);
+    //    //let stream_clone = stream.clone();
+    //    //let announcement_opt = thread::spawn(move || wait_for_announce(stream_clone));
+    //    //let announcement = announcement_opt.join();
+    //    //println!("announcement: {:?}", &announcement.unwrap().await);
+    //    let set_station: Message = Message::new(
+    //        1, station_number, 0, [0_u8; 256]).await?;
+    //    tokio::select! {
+    //        _stuff = wait_for_announce(stream.clone()) => {
+    //            println!("announcement received!");
+    //        }
+    //        _things = set_station.send(stream.clone()) => {
+    //            println!("send the things");
+    //        }
+    //    }
+    //    //let _ = set_station.send(stream.clone()).await;
+    //    //set_station(&stream, station_number)?;
+    //}
+}
 
-        println!("You selected station {}.", station_number);
-        //let stream_clone = stream.clone();
-        //let announcement_opt = thread::spawn(move || wait_for_announce(stream_clone));
-        //let announcement = announcement_opt.join();
-        //println!("announcement: {:?}", &announcement.unwrap().await);
-        let set_station: Message = Message::new(
-            1, station_number, 0, [0_u8; 256]).await?;
-        let _ = set_station.send(stream.clone()).await;
-        //set_station(&stream, station_number)?;
+async fn get_station_number(number_stations: u16) -> Option<u16> {
+    println!("What station would you like to select? If you're done, \
+              press \"q\" to exit.");
+    let mut input = String::new();
+    let _ = std::io::stdin().read_line(&mut input);
+    let input: Vec<String> = input.split_whitespace().map(String::from).collect();
+    //println!("{:?}", input);
+    let station_number = if input.len() == 1 && input[0] == "q" {
+        std::process::exit(1);
+    } else if input.len() != 1 || input[0].parse::<u16>().is_err() || input[0].parse::<u16>().unwrap() > (number_stations - 1) {
+        eprintln!("Pick a station from 0 to {} or quit with \"q\".", number_stations - 1);
+        None// 'input
+    } else {
+        Some(input[0].parse::<u16>().unwrap())
+    };
+    station_number
+}
+
+async fn get_station_number2(number_stations: u16) -> u16 {
+    println!("What station would you like to select? If you're done, \
+              press \"q\" to exit.");
+    let mut input = String::new();
+    let _ = std::io::stdin().read_line(&mut input);
+    let input: Vec<String> = input.split_whitespace().map(String::from).collect();
+    //println!("{:?}", input);
+    if input.len() == 1 && input[0] == "q" {
+        std::process::exit(1);
+    } else if input.len() != 1 || input[0].parse::<u16>().is_err() || input[0].parse::<u16>().unwrap() > (number_stations - 1) {
+        loop {
+            eprintln!("Pick a station from 0 to {} or quit with \"q\".", number_stations - 1);
+            let mut input = String::new();
+            let _ = std::io::stdin().read_line(&mut input);
+            let input: Vec<String> = input.split_whitespace().map(String::from).collect();
+            if input.len() == 1 && input[0] == "q" {
+                std::process::exit(1);
+            } else if input.len() == 1 && input[0].parse::<u16>().unwrap() < (number_stations - 1) {
+                return input[0].parse::<u16>().unwrap()
+            }
+        }
+    } else {
+        return input[0].parse::<u16>().unwrap()
     }
 }
 
 //TODO do something with received announce now
-async fn wait_for_announce(stream: Arc<RwLock<TcpStream>>) -> Option<Message> {
-    loop {
-        let mut buf = [0_u8; 258];
-        let _ = stream.read().await.peek(&mut buf).await;
-        if buf[0] == 3 {
-            //stream.read().unwrap().read_exact(&mut buf.unwrap())?;
-            return Some(Message::receive_and_expect(stream.clone(), 3).await.unwrap())
-        }
-    }
+async fn wait_for_announce(stream: Arc<Mutex<TcpStream>>) -> Option<Message> {
+    let mut buf = [0_u8; 258];
+    println!("something holds after this");
+    let _ = stream.lock().await.peek(&mut buf).await;
+    println!("{:?}", &buf);
+    //if buf[0] == 3 {
+    //    //stream.read().unwrap().read_exact(&mut buf.unwrap())?;
+    //    return Some(Message::receive_and_expect(stream.clone(), 3).await.unwrap())
+    //}
+    thread::sleep(time::Duration::from_secs(1));
+    None
 }
 
-async fn wait_for_announce2(stream: Arc<RwLock<TcpStream>>, tx: Sender<Option<Message>>) -> Result<()>/*Option<Message>*/ {
+async fn wait_for_announce2(stream: Arc<Mutex<TcpStream>>, tx: Sender<Option<Message>>) -> Result<()>/*Option<Message>*/ {
     loop {
         let mut buf = [0_u8; 258];
-        let _ = stream.read().await.peek(&mut buf);
+        let _ = stream.lock().await.peek(&mut buf);
         if buf[0] == 3 {
             //stream.lock().unwrap().read_exact(&mut buf.unwrap())?;
             //return Some(Message::receive_and_expect(stream.clone(), 3).unwrap())
@@ -240,9 +340,9 @@ async fn wait_for_announce2(stream: Arc<RwLock<TcpStream>>, tx: Sender<Option<Me
         }
     }
 }
-//fn wait_for_announce2(stream: Arc<RwLock<TcpStream>>) -> Option<
+//fn wait_for_announce2(stream: Arc<Mutex<TcpStream>>) -> Option<
 
-pub async fn handle_client(stream: Arc<RwLock<TcpStream>>,
+pub async fn handle_client(stream: Arc<Mutex<TcpStream>>,
                            song_path_vec: Vec<String>,
                            station_vec: Vec<Station>) -> Result<()> {
     // 1. receive hello
@@ -280,10 +380,12 @@ pub async fn handle_client(stream: Arc<RwLock<TcpStream>>,
             let station_opt = Some(station_vec.get(station_number as usize).unwrap());
             println!("\n\n\nstuck ahead of stat\n\n\n");
             if let Some(station) = station_opt {
+                println!("writing to udp");
                 station.udp_ports.write().await.push(client_udp_port);
             }
             println!("\n\n\nstuck ahead of prev_stat\n\n\n");
             if let Some(prev_station) = prev_station_opt {
+                println!("writing to udp");
                 prev_station.udp_ports.write().await.retain(|&x| x != client_udp_port);
             }
             //TODO add functionality to drop stream if client disconnects
@@ -300,7 +402,8 @@ pub async fn handle_client(stream: Arc<RwLock<TcpStream>>,
             }
             // 6. announce song playing on new station
             let announce = Message::new(3, 0, station_opt.unwrap().song_path.len() as u8, song_path_arr).await?;
-            let _ = announce.send(stream.clone());
+            println!("\n\n\n\n\n\n\n\n\n\nsending announcement!");
+            let _ = announce.send(stream.clone()).await;
         }
     }
 }
@@ -327,6 +430,7 @@ async fn play_song_loop(file: Arc<Mutex<File>>,
                         client_udp_port_vec: Arc<RwLock<Vec<u16>>>) -> Result<()> {
     println!("thread spawned!");
     let time_gap = std::time::Duration::from_micros(62500);
+    //let time_gap = std::time::Duration::from_secs(3);
     let file_len = File::open(&song_path).unwrap().seek(std::io::SeekFrom::End(0)).unwrap();
     println!("\n\n\nfile_len: {:?}\n\n\n", file_len);
     loop {
@@ -344,6 +448,38 @@ async fn play_song_loop(file: Arc<Mutex<File>>,
         thread::sleep(time_gap);
     }
 }
+
+//async fn play_song2(file: File,
+//                   song_path: String,
+//                   server_name: Ipv4Addr,
+//                   server_udp_port: u16,
+//                   client_udp_port_vec: Arc<RwLock<Vec<u16>>>) -> Result<()> {
+//
+//    let client_udp_port_vec_unlock = client_udp_port_vec.read().await;
+//    for udp in client_udp_port_vec_unlock.iter() {
+//        let _ = play_song_chunk2(file, song_path.clone(), server_name.clone(), server_udp_port.clone(), *udp):
+//    };
+//    Ok(())
+//}
+
+//async fn play_song_chunk2(file: File,
+//                          song_path: String,
+//                          server_name: Ipv4Addr,
+//                          server_udp_port: u16,
+//                          client_udp_port: u16) -> Result<File> {
+//    const BUF_LEN: u64 = 1024;
+//    let mut song_buf = [0_u8; BUF_LEN as usize];
+//    
+//    song_buf = if current_pos + BUF_LEN > file_len {
+//        let _ = file.lock().await.read_exact(&mut song_buf);
+//        let _ = file.lock().await.seek(SeekFrom::Start(0));
+//        song_buf
+//    } else {
+//        let _ = file.lock().await.read_exact(&mut song_buf);
+//        song_buf
+//    };
+//}
+
 
 async fn play_song_chunk(file: Arc<Mutex<File>>,
                    song_path: String,
@@ -385,7 +521,8 @@ async fn play_song_chunk(file: Arc<Mutex<File>>,
     //        //break 'read
     //    }
     //};
-    println!("{:?}", client_udp_port_vec.read().await);
+    println!("client_port_vec in play_song_chunk{:?}",
+        client_udp_port_vec.read().await);
     for udp in client_udp_port_vec.read().await.iter() {
         println!("{}", &udp);
         let _ = socket.connect(format!("{}:{}", server_name, udp)).await;
