@@ -172,6 +172,7 @@ impl Message {
         let mut buf = [0_u8; 258];
         let _ = stream.lock().await.peek(&mut buf).await;
         if buf[0] == expected_command {
+            let mut buf = [0_u8; 258];
             let _ = stream.lock().await.read_exact(&mut buf).await;
             match &buf[0] {
                 0 | 1 | 2 => {
@@ -198,6 +199,40 @@ impl Message {
             }
         } else {
             None
+        }
+    }
+    async fn receive_and_expect3(stream: Arc<Mutex<TcpStream>>,
+                                 expected_command: u8) -> Option<Self> {
+        loop {
+            let mut buf = [0_u8; 258];
+            let _ = stream.lock().await.peek(&mut buf).await;
+            if buf[0] == expected_command {
+                let mut buf = [0_u8; 258];
+                let _ = stream.lock().await.read_exact(&mut buf).await;
+                match &buf[0] {
+                    0 | 1 | 2 => {
+                        return Some(Message::new(buf[0],
+                                          NetworkEndian::read_u16(&buf[1..3]),
+                                          0,
+                                          [0_u8; 256],
+                        ).await.unwrap())
+                    }
+                    3 | 4 => {
+                        let mut message = [0_u8; 256];
+                        for (i, ch) in buf[2..].iter().enumerate() {
+                            message[i] = *ch;
+                        }
+                        return Some(Message::new(buf[0],
+                                          0,
+                                          buf[1],
+                                          message,
+                        ).await.unwrap())
+                    }
+                    _ => {
+                        std::process::exit(1)
+                    }
+                }
+            }
         }
     }
 }
@@ -228,17 +263,26 @@ pub async fn interact_with_server(stream: Arc<Mutex<TcpStream>>,
     //let stream_clone = stream.clone();
     //thread::spawn(move || wait_for_announce(stream_clone));
     // 5. send set_station message in loop
+
+    //let station_number = get_station_number2(number_stations);
+    //println!("got station number");
+    //let set_station: Message = Message::new(
+    //    1, station_number.await, 0, [0_u8; 256]).await?;
+    //let _ = set_station.send(stream.clone()).await;
     loop {
+        println!("\nnew iteration of client loop\n");
         tokio::select! {
-            station_number = get_station_number2(number_stations) => {
+            station_number = get_station_number3(number_stations) => {
                 println!("got station number");
                 let set_station: Message = Message::new(
                     1, station_number, 0, [0_u8; 256]).await?;
                 let _ = set_station.send(stream.clone()).await;
+                let announcement = Message::receive_and_expect3(stream.clone(), 3).await.unwrap();
+                println!("got an announcement in a different spot: {:?}", &announcement);
                 // TODO sending set_station with the same value removes the 
                 // value without keeping it set?
             }
-            announcement = Message::receive_and_expect(stream.clone(), 3) => {
+            announcement = Message::receive_and_expect3(stream.clone(), 3) => {
                 println!("got an announcement: {:?}", &announcement);
             }
         }
@@ -297,7 +341,7 @@ async fn get_station_number2(number_stations: u16) -> u16 {
     //println!("{:?}", input);
     if input.len() == 1 && input[0] == "q" {
         std::process::exit(1);
-    } else if input.len() != 1 || input[0].parse::<u16>().is_err() || input[0].parse::<u16>().unwrap() > (number_stations - 1) {
+    } else if input.len() >= 1 || input[0].parse::<u16>().is_err() || input[0].parse::<u16>().unwrap() > (number_stations - 1) {
         loop {
             eprintln!("Pick a station from 0 to {} or quit with \"q\".", number_stations - 1);
             let mut input = String::new();
@@ -309,8 +353,36 @@ async fn get_station_number2(number_stations: u16) -> u16 {
                 return input[0].parse::<u16>().unwrap()
             }
         }
-    } else {
+    } else if input.len() == 1 {
         return input[0].parse::<u16>().unwrap()
+    } else {
+        std::process::exit(1)
+    }
+}
+
+async fn get_station_number3(number_stations: u16) -> u16 {
+    println!("What station would you like to select? If you're done, \
+              press \"q\" to exit.");
+    let mut input = String::new();
+    let _ = std::io::stdin().read_line(&mut input);
+    let input: Vec<String> = input.split_whitespace().map(String::from).collect();
+    //println!("{:?}", input);
+    if input.len() == 1 && input[0] == "q" {
+        std::process::exit(1);
+    } else if input.len() == 1 && input[0].parse::<u16>().is_ok() && input[0].parse::<u16>().unwrap() <= (number_stations - 1) {
+        return input[0].parse::<u16>().unwrap()
+    } else {
+        loop {
+            eprintln!("Pick a station from 0 to {} or quit with \"q\".", number_stations - 1);
+            let mut input = String::new();
+            let _ = std::io::stdin().read_line(&mut input);
+            let input: Vec<String> = input.split_whitespace().map(String::from).collect();
+            if input.len() == 1 && input[0] == "q" {
+                std::process::exit(1);
+            } else if input.len() == 1 && input[0].parse::<u16>().is_ok() && input[0].parse::<u16>().unwrap() < (number_stations - 1) {
+                return input[0].parse::<u16>().unwrap()
+            }
+        }
     }
 }
 
@@ -362,50 +434,105 @@ pub async fn handle_client(stream: Arc<Mutex<TcpStream>>,
 
     // 4. start a loop to wait for set station with client
     let mut prev_station_opt: Option<Station> = None;
+    let mut prev_station_num_opt: Option<u16> = None;
     //let station_vec_lock = station_vec.lock().unwrap(); //can't do this bc
                                                           // it would always
                                                           // have the lock
     loop {
-        //let stream_clone = stream.clone();
-        println!("just above set_station");
-        let set_station = Message::receive_and_expect(stream.clone(), 1).await?;
-        //let station_vec_lock = station_vec.lock().unwrap();
-        if let MessageType::Data(station_number) = set_station.message_type {
-            // 5. receive a station number from client, and add udp port to a 
-            // shareable struct that will be used in a udp_player loop
-            //let station_vec_clone = station_vec.clone();
-            // let station_vec_lock = station_vec.lock().unwrap();
-            // let station_got = station_vec_lock.get(station_number as usize);
-            //let station_vec_clone = station_vec.clone();
-            let station_opt = Some(station_vec.get(station_number as usize).unwrap());
-            println!("\n\n\nstuck ahead of stat\n\n\n");
-            if let Some(station) = station_opt {
-                println!("writing to udp");
-                station.udp_ports.write().await.push(client_udp_port);
+        tokio::select! {
+            set_station = Message::receive_and_expect3(stream.clone(), 1) => {
+                let station_opt: Option<Station>;
+                if let MessageType::Data(station_number) = set_station.unwrap().message_type {
+                    //let station_opt = Some(station_vec.get(station_number as usize).unwrap());
+                    //if let Some(station) = station_opt {
+                    //    station.udp_ports.write().await.push(client_udp_port);
+                    //}
+                    station_opt = Some(station_vec.get(station_number as usize).unwrap().clone());
+                    if let Some(ref station) = station_opt {
+                        if let Some(prev_station_num) = prev_station_num_opt {
+                            if prev_station_num != station_number {
+                                station.udp_ports.write().await.push(client_udp_port);
+                            }
+                        } else if let None = prev_station_num_opt {
+                            station.udp_ports.write().await.push(client_udp_port);
+                        }
+                    }
+                    if let Some(prev_station) = prev_station_opt {
+                        if let Some(prev_station_num) = prev_station_num_opt {
+                            if prev_station_num != station_number {
+                                prev_station.udp_ports.write().await.retain(|&x| x != client_udp_port);
+                            }
+                        }
+                    }
+                    prev_station_opt = station_opt.clone();
+                    prev_station_num_opt = Some(station_number.clone());
+
+                } else {
+                    eprintln!("something has really gone wrong");
+                    std::process::exit(1)
+                }
+                let mut song_path_arr = [0_u8; 256];
+                for (i, ch) in station_opt.clone()
+                                          .unwrap()
+                                          .song_path
+                                          .as_bytes()
+                                          .iter()
+                                          .enumerate() {
+                    song_path_arr[i] = *ch;
+                }
+                // 6. announce song playing on new station
+                let announce = Message::new(3, 0, station_opt.unwrap().song_path.len() as u8, song_path_arr).await?;
+                println!("\n\n\n\n\n\n\n\n\n\nsending announcement!");
+                let _ = announce.send(stream.clone()).await;
             }
-            println!("\n\n\nstuck ahead of prev_stat\n\n\n");
-            if let Some(prev_station) = prev_station_opt {
-                println!("writing to udp");
-                prev_station.udp_ports.write().await.retain(|&x| x != client_udp_port);
+            _something_else = Message::receive_and_expect3(stream.clone(), 4) => {
+                println!("got some error message!");
             }
-            //TODO add functionality to drop stream if client disconnects
-            prev_station_opt = station_opt.cloned();
-            println!("{}, {:?}", station_opt.unwrap().song_path, station_opt.unwrap().udp_ports.read().await);
-            //let announce = Message::receive_and_expect(stream.clone(), 3)?;
-            let mut song_path_arr = [0_u8; 256];
-            for (i, ch) in station_opt.unwrap()
-                                      .song_path
-                                      .as_bytes()
-                                      .iter()
-                                      .enumerate() {
-                song_path_arr[i] = *ch;
-            }
-            // 6. announce song playing on new station
-            let announce = Message::new(3, 0, station_opt.unwrap().song_path.len() as u8, song_path_arr).await?;
-            println!("\n\n\n\n\n\n\n\n\n\nsending announcement!");
-            let _ = announce.send(stream.clone()).await;
         }
     }
+    //loop {
+    //    //let stream_clone = stream.clone();
+    //    println!("just above set_station");
+    //    //let set_station = Message::receive_and_expect(stream.clone(), 1).await?;
+    //    let set_station = Message::receive_and_expect2(stream.clone(), 1).await.unwrap();
+    //    //let station_vec_lock = station_vec.lock().unwrap();
+    //    if let MessageType::Data(station_number) = set_station.message_type {
+    //        // 5. receive a station number from client, and add udp port to a 
+    //        // shareable struct that will be used in a udp_player loop
+    //        //let station_vec_clone = station_vec.clone();
+    //        // let station_vec_lock = station_vec.lock().unwrap();
+    //        // let station_got = station_vec_lock.get(station_number as usize);
+    //        //let station_vec_clone = station_vec.clone();
+    //        let station_opt = Some(station_vec.get(station_number as usize).unwrap());
+    //        println!("\n\n\nstuck ahead of stat\n\n\n");
+    //        if let Some(station) = station_opt {
+    //            println!("writing to udp");
+    //            station.udp_ports.write().await.push(client_udp_port);
+    //        }
+    //        println!("\n\n\nstuck ahead of prev_stat\n\n\n");
+    //        if let Some(prev_station) = prev_station_opt {
+    //            println!("writing to udp");
+    //            //if station_number != prev_station_number //TODO something like this??
+    //            prev_station.udp_ports.write().await.retain(|&x| x != client_udp_port);
+    //        }
+    //        //TODO add functionality to drop stream if client disconnects
+    //        prev_station_opt = station_opt.cloned();
+    //        println!("{}, {:?}", station_opt.unwrap().song_path, station_opt.unwrap().udp_ports.read().await);
+    //        //let announce = Message::receive_and_expect(stream.clone(), 3)?;
+    //        let mut song_path_arr = [0_u8; 256];
+    //        for (i, ch) in station_opt.unwrap()
+    //                                  .song_path
+    //                                  .as_bytes()
+    //                                  .iter()
+    //                                  .enumerate() {
+    //            song_path_arr[i] = *ch;
+    //        }
+    //        // 6. announce song playing on new station
+    //        let announce = Message::new(3, 0, station_opt.unwrap().song_path.len() as u8, song_path_arr).await?;
+    //        println!("\n\n\n\n\n\n\n\n\n\nsending announcement!");
+    //        let _ = announce.send(stream.clone()).await;
+    //    }
+    //}
 }
 
 pub async fn play_all_loops(server_name: Ipv4Addr,
